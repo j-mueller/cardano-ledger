@@ -72,13 +72,18 @@ import Cardano.Binary
   ( FromCBOR (..),
     ToCBOR (toCBOR),
     encodeListLen,
-    serialize',
     serializeEncoding,
+    serializeEncoding',
   )
 import Cardano.Ledger.Address (Addr (..), RewardAcnt (..))
 import Cardano.Ledger.Alonzo.Data (Data, DataHash, hashData)
 import Cardano.Ledger.Alonzo.Language (Language (..), nonNativeLanguages)
-import Cardano.Ledger.Alonzo.PParams (LangDepView (..), PParams, getLanguageView)
+import Cardano.Ledger.Alonzo.PParams
+  (LangDepView (..)
+  , PParams
+  , getLanguageView
+  , encodeLangViews
+  )
 import Cardano.Ledger.Alonzo.Scripts
   ( CostModel,
     ExUnits (..),
@@ -240,7 +245,7 @@ data WitnessPPData era
   = WitnessPPData
       !(Redeemers era) -- From the witnesses
       !(TxDats era)
-      !(Set (LangDepView era)) -- From the Porotocl parameters
+      !(Set LangDepView) -- From the Porotocl parameters
   deriving (Show, Eq, Generic, Typeable)
 
 deriving instance Typeable era => NoThunks (WitnessPPData era)
@@ -251,9 +256,10 @@ deriving instance Typeable era => NoThunks (WitnessPPData era)
 instance Era era => SafeToHash (WitnessPPData era) where
   originalBytes (WitnessPPData m d l) =
     -- TODO: double check that canonical encodings are used for the langDepView (l)
-    if nullDats d
-      then originalBytes m <> serialize' l
-      else originalBytes m <> originalBytes d <> serialize' l
+    let dBytes = if nullDats d then mempty else originalBytes d
+        lBytes = serializeEncoding' (encodeLangViews l)
+    in originalBytes m <> dBytes <> lBytes
+
 
 instance (Era era, c ~ Crypto era) => HashAnnotated (WitnessPPData era) EraIndependentWitnessPPData c
 
@@ -272,7 +278,7 @@ hashWitnessPPData pp langs rdmrs dats =
       let newset = mapLangSet (getLanguageView pp) langs
        in SJust (hashAnnotated (WitnessPPData rdmrs dats newset))
   where
-    mapLangSet :: (Language -> LangDepView era) -> (Set Language -> Set (LangDepView era))
+    mapLangSet :: (Language -> LangDepView) -> (Set Language -> Set LangDepView)
     mapLangSet f = Set.foldr (\x acc -> Set.insert (f x) acc) mempty
 
 -- ===============================================================
