@@ -218,7 +218,8 @@ test-suite shelley-spec-ledger-test
       tasty-quickcheck,
       tasty,
       time,
-      transformers
+      transformers,
+      tree-diff
 
 
 benchmark mainbench
