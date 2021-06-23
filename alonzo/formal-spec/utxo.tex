@@ -94,7 +94,25 @@ the Alonzo era, this is also constant, with value $\mathsf{systemTime}$
 \item
   $\fun{indexof}$ is a helper function that finds the index of a given certificate, value, input, or
   withdrawal in a list, finite map, or set of such objects.
-  It assumes there is some ordering on each of these structures.
+  For each of these, it computes the index as follows :
+  \begin{itemize}
+    \item certificates in the $\DCert$ list are indexed in the order in which they arranged
+    in the (full, unfiltered) list of certificates inside the transaction
+    \item the index of a reward account $\var{ract}$ in the the reward withdrawals map is
+    the index of $\var{ract}$ as a key in the (unfiltered) map. The keys of the $\Wdrls$
+    map are arranged in the order defined on the $\RewardAcnt$ type, which is a lex order
+    on the pair of the $\Network$ and the $\Credential$.
+    \item the set of inputs is an ordered set (according to the order defined on
+    the type $\TxIn$) - this also is the order in which the elements of the set are
+    indexed (lex order on the pair of $\TxId$ and $\Ix$). All inputs of a transaction
+    are included in the set being indexed (not just the ones that point to a Plutus script UTxO)
+    \item the set of policy IDs is ordered according to the order defined on $\PolicyID$ (lex).
+    The index of a $\PolicyID$ in this set of policy IDs is computed according to this order.
+    Note that at the use site, the set of policy IDs passed to $\fun{indexof}$ is
+    the (unfiltered) domain of the $\Value$ map in the $\fun{mint}$ field of the transaction.
+  \end{itemize}
+  Note that in all the orderings above, long and short lex are one in the same, since
+  for each of the ordered types, all the terms of that type have the same length.
 \item
   $\fun{indexedRdmrs}$ indexes the pair of a redeemer and an $\ExUnits$ value
   for a given script by its script purpose (eg. the input, or certificate, etc.),
@@ -137,7 +155,7 @@ the Alonzo era, this is also constant, with value $\mathsf{systemTime}$
     &\fun{indexof} \in \DCert \to \seqof{\DCert} \to \Ix\\
     &\fun{indexof} \in \AddrRWD \to \Wdrl \to \Ix\\
     &\fun{indexof} \in \TxIn \to \powerset{\TxIn} \to \Ix\\
-    &\fun{indexof} \in \PolicyID \to \Value \to \Ix
+    &\fun{indexof} \in \PolicyID \to \powerset{\PolicyID} \to \Ix
   \end{align*}
   %
   \emph{Indexing functions}
@@ -153,7 +171,7 @@ the Alonzo era, this is also constant, with value $\mathsf{systemTime}$
     & ~~\quad \var{rdptr} = \begin{cases}
         (\mathsf{Cert},\fun{indexof}~\var{sp}~(\fun{txcerts}~{txb}))   & \var{sp}~\in~\DCert \\
         (\mathsf{Rewrd},\fun{indexof}~\var{sp}~(\fun{txwdrls}~{txb}))   & \var{sp}~\in~\AddrRWD \\
-        (\mathsf{Mint},\fun{indexof}~\var{sp}~(\fun{mint}~{txb}))    & \var{sp}~\in~\PolicyID \\
+        (\mathsf{Mint},\fun{indexof}~\var{sp}~(\dom~(\fun{mint}~{txb})))    & \var{sp}~\in~\PolicyID \\
         (\mathsf{Spend},\fun{indexof}~\var{sp}~(\fun{txinputs}~{txb})) & \var{sp}~\in~\TxIn
       \end{cases}
   \end{align*}
@@ -280,7 +298,7 @@ which has the information to do this correctly for
      &\fun{valContext} \in \TxInfo \to \ScriptPurpose \to \Data \\
      &\text{Pairs transaction data with a script purpose} \\~\\
      &\fun{runPLCScript} \in \ScriptPlutus \to \seqof{\Data} \to \ExUnits \to \CostMod \to
-     \IsValidating \\
+     \IsValid \\
      &\text{Validate a Plutus script, taking resource limits into account}
   \end{align*}
   %
@@ -329,12 +347,11 @@ evaluator.
   \item the cost model for $\PlutusVI$, specified in the protocol parameters
   \end{itemize}
 
-  \item $\fun{evalScripts}$ evaluates a whole list of scripts paired with all their
-  inputs by calling the native script validator function, $\fun{runPLCScript}$
-
-  \item $\fun{runNativeScript}$ replaces the $\fun{validateScript}$ function,
-  to diffentiate running native and non-native scripts. The definition is the
-  same as in the ShelleyMA specification.
+  \item $\fun{evalScripts}$ evaluates a whole list of scripts. For $\PlutusVI$ scripts,
+  it evaluates them paired with all their
+  inputs by calling the non-native script validator function, $\fun{runPLCScript}$ (see
+  \ref{sec:txinfo} for details).
+  For native (timelock) scripts, it calls $\fun{evalTimelock}$
 \end{itemize}
 
 Note that no ``checks'' are performed within these functions.
@@ -362,12 +379,13 @@ are caught during the application of the UTXOW rule (before these functions are 
     & \where \\
     & ~~~~~~~ \var{txinfo}~=~\fun{txInfo}~(\fun{language}~{script})~\var{utxo}~\var{tx} \\
     \nextdef
-    & \fun{evalScripts} \in \seqof{(\ScriptNonNative \times \seqof{\Data} \times \ExUnits \times \CostMod)} \to \IsValidating \\
-    & \fun{evalScripts}~\epsilon = \True \\
-    & \fun{evalScripts}~((\var{sc}, \var{d}, \var{eu}, \var{cm});\Gamma) =
-      \llbracket sc \rrbracket_{cm,\var{eu}} d \land \fun{evalScripts}~\Gamma
-    \nextdef
-    &\fun{runNativeScript} \in\ScriptNative \to \Tx \to \IsValidating
+    & \fun{evalScripts} \in \Tx \times \seqof{(\ScriptNonNative \times \seqof{\Data} \times \ExUnits \times \CostMod)} \to \IsValid \\
+    & \fun{evalScripts}~\var{tx}~\epsilon = \True \\
+    & \fun{evalScripts}~\var{tx}~((\var{sc}, \var{d}, \var{eu}, \var{cm});\Gamma) = \\
+      & \begin{cases}
+        \llbracket sc \rrbracket_{cm,\var{eu}} d \land \fun{evalScripts}~\var{tx}~\Gamma & \var{sc}\in\ScriptPlutus \\
+        \fun{evalTimelock}~\var{tx}~\var{sc} \land \fun{evalScripts}~\var{tx}~\Gamma & \var{sc}\in\ScriptNative
+      \end{cases}
   \end{align*}
   \caption{Scripts and their arguments}
   \label{fig:functions:script2}
@@ -383,7 +401,7 @@ This ensures that users pay for the computational resources that are needed to v
 if script validation fails. %
 In order to handle script execution, an additional transition system is used, called UTXOS.
 It performs the appropriate UTxO state changes, based on the
-value of the $\IsValidating$ tag, which it checks using the $\fun{evalScripts}$ function.
+value of the $\IsValid$ tag, which it checks using the $\fun{evalScripts}$ function.
 
 In general, there is no way to check \emph{a-priori} that the budget that has been supplied is sufficient for the transaction.
 This can only be done by actually running the scripts. From the perspective of the ledger, there is no difference
@@ -396,7 +414,7 @@ and for it to contain only valid transactions. This motivates the
 slot leader to:
 
 \begin{enumerate}
-  \item Correctly apply the $\IsValidating$ tag;
+  \item Correctly apply the $\IsValid$ tag;
   \item Include all transactions that validate within the block,
   \textit{even when there is a 2nd phase script validation failure};
   \item Exclude any transactions that are invalid in some way \textit{other than 2nd step script validation failure}.
@@ -432,7 +450,7 @@ are identical to the UTXO transition (Figure
 There are two rules, corresponding to the two possible state changes of the
 UTxO state in the UTXOS transition system (Figure~\ref{fig:rules:utxo-state-upd}).
 %
-In both cases, the $\fun{evalScripts}$ function is called upon to verify that the $\IsValidating$
+In both cases, the $\fun{evalScripts}$ function is called upon to verify that the $\IsValid$
 tag has been applied correctly. The function $\fun{collectTwoPhaseScriptInputs}$ is used to build
 the inputs $\var{sLst}$ for the $\fun{evalScripts}$ function.
 %
@@ -464,7 +482,7 @@ In this case, the states of the UTxO, fee
     \\
     ~
     \\
-    \fun{isValidating}~\var{tx} = \fun{evalScripts}~\var{sLst} = \True
+    \fun{isValid}~\var{tx} = \fun{evalScripts}~\var{tx}~\var{sLst} = \True
     \\~\\
     {
       \begin{array}{r}
@@ -515,7 +533,7 @@ In this case, the states of the UTxO, fee
     \\
     ~
     \\
-    \fun{isValidating}~\var{tx} = \fun{evalScripts}~\var{sLst} = \False
+    \fun{isValid}~\var{tx} = \fun{evalScripts}~\var{tx}~\var{sLst} = \False
     }
     {
     \begin{array}{l}
@@ -815,7 +833,7 @@ by the UTXO transition (the application of which is also part of the conditions)
       \var{witsKeyHashes} \leteq \{\fun{hashKey}~\var{vk} \vert \var{vk} \in
       \dom (\txwitsVKey{txw}) \}\\~\\
       \hldiff{\forall \var{s} \in \range (\fun{txscripts}~{txw}) \cap \ScriptNative,
-      \fun{runNativeScript}~\var{s}~\var{tx}}\\~\\
+      \fun{validateScript}~\var{s}~\var{tx}}\\~\\
       \hldiff{\{ s \mid (\_, s) \in \fun{scriptsNeeded}~\var{utxo}~\var{tx}\} = \dom (\fun{txscripts}~{txw})} \\~\\
       \hldiff{\{ h \mid (\_ \mapsto (a, \_, h)) \in \txins{txb} \restrictdom \var{utxo}, \fun{isNonNativeScriptAddress}~{tx}~{a}\} } \\
       \hldiff{\subseteq \dom (\fun{txdats}~{txw})} \\~\\

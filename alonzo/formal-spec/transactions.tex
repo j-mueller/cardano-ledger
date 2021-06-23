@@ -21,7 +21,7 @@ We make the following changes and additions:
 
   \item $\Script$ is the type of all scripts, both native and non-native.
 
-  \item $\IsValidating$ is a tag that indicates that a transaction
+  \item $\IsValid$ is a tag that indicates that a transaction
   expects that all its non-native scripts will be validated.
   This tag is added by the block creator when
   constructing a block, and its correctness is verified as part of the script execution.
@@ -81,7 +81,7 @@ We add the following helper functions:
     \begin{array}{r@{~\in~}l@{\qquad=\qquad}lr}
       \var{sc} & \ScriptNonNative & \ScriptPlutus \\
       \var{sc} & \Script & \ScriptNative \uniondistinct \ScriptNonNative \\
-      \var{isv} & \IsValidating & \Bool \\
+      \var{isv} & \IsValid & \Bool \\
       \var{d} & \Datum & \Data \\
       \var{r} & \Redeemer & \Data
     \end{array}
@@ -173,7 +173,7 @@ We add the following helper functions:
       \var{tx} ~\in~ \Tx ~=~
       & \TxBody & \fun{txbody} & \text{Body}\\
       & \times ~\TxWitness & \fun{txwits} & \text{Witnesses}\\
-      & \times ~\hldiff{\IsValidating} & \hldiff{\fun{isValidating}}&\text{Validation tag}\\
+      & \times ~\hldiff{\IsValid} & \hldiff{\fun{isValid}}&\text{Validation tag}\\
       & \times ~\AuxiliaryData^? & \fun{auxiliaryData}&\text{Auxiliary data}\\
     \end{array}
   \end{equation*}
@@ -253,7 +253,7 @@ A complete transaction is comprised of:
 \begin{enumerate}
   \item the transaction body,
   \item all the information that is needed to witness transactions,
-  \item the $\IsValidating$ tag, which indicates whether all scripts
+  \item the $\IsValid$ tag, which indicates whether all scripts
   that are executed during the script execution phase validate.
   The correctness of the tag is verified as part of the ledger rules, and the block is
   deemed to be invalid if it is applied incorrectly.
@@ -264,7 +264,7 @@ A complete transaction is comprised of:
 
 Note that unlike in Shelley or ShelleyMA eras, transactions inside blocks and transactions
 a user submits are now of different types. A transaction inside a block is composed of
-the user-submitted transaction paired with the $\IsValidating$ tag, which is
+the user-submitted transaction paired with the $\IsValid$ tag, which is
 added by the block producer. The user cannot
 add their own tag because of how this tag is used in transaction validation, see
 Section~\ref{sec:two-phase}.

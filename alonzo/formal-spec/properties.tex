@@ -197,45 +197,151 @@ replay protection.
 Only the $\mathsf{UTXOS}$ transition affects the ledger UTxO in Alonzo.
 
 \begin{lemma}
-  For all environments $e$, transitions $\mathsf{TRNS}$, transactions $tx$ and states $s, s'$ such that
+  For all environments $e$, transitions $\mathsf{TRNS}$, signals $f$ and states $s, s'$ such that
   \begin{equation*}
-    e\vdash s\trans{trns}{tx}s',
+    e\vdash s\trans{trns}{f}s',
   \end{equation*}
-  The following holds for some states $u, u'$ and environment $e'$ :
+  The following holds :
   \begin{equation*}
-    \Utxo(s) \neq \Utxo (s')~ \Rightarrow~e'\vdash u\trans{utxos}{tx}u'~\wedge~\Utxo(s)=\Utxo (u)~\wedge~\Utxo(s')=\Utxo (u')
+    \Utxo(s) \neq \Utxo (s')~ \Rightarrow~\mathsf{TRNS}~=~\mathsf{UTXOS}
   \end{equation*}
 \end{lemma}
 \begin{proof}
-  The $\mathsf{UTXOS}$ transition is the only one that updates the UTxO, but not via
-  the result of another transition, so any update from the UTxO of $s$ to that of $s'$
+  By inspecting each transition in this specification, as well as those inherited from the
+  Shelley one, we see that any update from the UTxO of $s$ to that of $s'$
   must be done by $\mathsf{UTXOS}$.
+\end{proof}
+\end{property}
+
+\begin{property}[Script interpreter inputs are fixed]
+  \label{prop:fixed-inputs}
+
+For this property to hold, we make an important assumption about the Plutus script
+interpreter : it is a pure function that receives only the inputs provided by the ledger when it is
+invoked by calling the $\fun{runPLCScript}$ function. In particular, it does not
+obtain any system randomness, etc. With this in mind, we can make the claim that
+all the data that a non-native script interpreter gets as input
+is fixed either by
+
+\begin{itemize}
+  \item the input itself (or its hash) being inside the transaction body --- and therefore signed, or
+  \item fixed by it (or its hash) having been recorded on the ledger
+\end{itemize}
+
+\begin{lemma}
+  For all environments $e, e'$, transactions $tx, tx'$ and states $s, s', u, u'$ such that
+  \begin{equation*}
+    e\vdash s\trans{ledger}{tx}s', \\
+    e'\vdash u\trans{ledger}{tx'}u', \\
+    \txbody{tx} = \txbody{tx'}, \\
+    (\fun{languages}~(\fun{txwits}~{tx}))~\restrictdom~\fun{costmdls}~(\field_{pp}(s))~=~(\fun{languages}~(\fun{txwits}~{tx'}))~\restrictdom\fun{costmdls}~(\field_{pp}(s')), \\
+  \end{equation*}
+  The following holds :
+
+  \[\fun{evalScripts}~{tx}~ \fun{collectTwoPhaseScriptInputs} ~\field_{pp}(s)~\var{tx}~ \Utxo(s)\]
+  \[ \Leftrightarrow\]
+  \[\fun{evalScripts}~{tx'}~ \fun{collectTwoPhaseScriptInputs} ~\field_{pp}(u)~\var{tx'}~ \Utxo(u)\]
+
+\end{lemma}
+\begin{proof}
+  Let us consider the use of arguments of $\fun{evalScripts}$ (see Figure \ref{fig:functions:script2}).
+  \begin{itemize}
+    \item $\var{tx}, \var{tx'}$ : this argument is only inspected in the case that the script $sc$ (the first element
+    in the pair at the head of the list
+    $((\var{sc}, \var{d}, \var{eu}, \var{cm});\Gamma)$) is a native script. Since all native scripts
+    are checked in phase one of validation (see \ref{fig:rules:utxow-alonzo}) by calling $\fun{validateScript}$
+    on all scripts attached to the transaction. For this to apply to $sc$, we must also show
+    that $sc$ is a script attached to the transaction (see the second argument explanation).
+    Note also that the $tx$ argument passed to $\fun{evalScripts}$ at the use site (in the UTXOS transition)
+    is the same, unmodified $tx$ as is the signal for the LEDGER transition. We verify this by inspecting
+    the sequence of transitions through which it is propagated (UTXOS, UTXO, UTXOW, and LEDGER), and their signals.
+
+    This allows us to conclude that the first argument to $\fun{evalScripts}$
+    \begin{itemize}
+      \item has no impact on the outcome of the evaluation of the non-native scripts
+      as part of running $\fun{evalScripts}$, and
+      \item the outcome of native script evaluation by $\fun{evalScripts}$ is the
+      same as the outcome of evaluating them in phase-1, since
+      it calls the same evaluation function on the same inputs in both cases
+      \[\fun{evalTimelock}~\var{tx}~\var{sc}\]
+      Note here that we are considering only phase-1 valid transactios here (as we started
+      with the assumptions of having valid ledger transitions), therefore
+      phase-1 evaluation of native scripts necessarily succeeded for both $tx$ and $tx'$
+      in order to proceed to phase-2, wherein $\fun{evalScripts}$ is run
+    \end{itemize}
+
+    \item The second argument is a list. We will show that it must be the same list for the $e, s, tx, s'$
+    transition case, as it is for $e', u, tx', u'$. The list is constructed by the
+    function $\fun{collectTwoPhaseScriptInputs}$ (see \ref{fig:functions:script2}).
+    The order of the list does not affect the validation outcome, since the interpreter is run
+    on each pair of a script and its inputs independently of all other pairs in the list.
+    The function $\fun{evalTimelock}$ is a $\wedge$-fold over the list. Thus, we ignore the order
+    of the elements in the generated list.
+
+    \textbf{Scripts and script purposes : } The $\fun{collectTwoPhaseScriptInputs}$
+    function makes a list of out the set of all pairs that associate a Plutus script
+    with its inputs. Each script in the list corresponds to one returned by
+    the $\fun{scriptsNeeded}$ function, which returns the collection of
+    all scripts (together with their script purposes) needed for validating the UTxOs being spent,
+    the policies of the tokens being minted, rewards being withdrawn, and the certificates
+    in the transaction.
+
+    The policy IDs, the reward accounts, and certificate credentials kinds of script purposes all include
+    the hash of the validating script. All this data is fixed by the transaction body,
+    and therefore must be the same for $tx$ and $tx'$. The script purpose and hash pairs are
+    included in the collection output by $\fun{scriptsNeeded}$.
+
+    Input-type script purposes are also fixed by the input field of the transaction body.
+    To obtain the script hash associated with the input, however,
+    the $\fun{scriptsNeeded}$ function also takes the ledger UTxO as a parameter.
+    The UTxO is used to make the transaction's inputs into realized inputs.
+    A transaction input (if valid) uniquely determines the realized input across the whole
+    history of the UTxO, so two phase-1 valid transactions with the same inputs
+    will have the same realized inputs even if they are being applied to UTxO states.
+    So, like other script purposes (policy IDs, etc.), the script purposes corresponding to
+    transaction inputs are always paired with a script hash fixed by the transaction body.
+
+    \textbf{Scripts inputs : } The inputs to the scripts that are collected
+    by $\fun{collectTwoPhaseScriptInputs}$ must also be the same for each script in both cases.
+    In the case of native scripts, the inputs are never inspected at all.
+    The list of inputs for each non-native scripts is made up of the following
+    (always in the same order):
+
+    \begin{itemize}
+      \item Datums : a datum is the first element of the input list whenever
+      the function $\fun{getDatum}$ (Figure \ref{fig:functions:script2})
+      finds one attached to the transaction. The datum it returns is one that
+      is associated with the $\ScriptPurpose$ of the script for which
+      this list of inputs is being compiled. 
+      \item Redeemers :
+      transaction
+      \item Context :
+      \item Execution units :
+      \item Cost model :
+    \end{itemize}
+
+
+    We can tell by inspecting this function that it does not
+    inspect all protocol parameters, but only the cost models. The cost models for
+    since the check (in UTXOW)
+
+    \[\fun{wppHash}~{txb}~=~\fun{hashWitnessPPData}~\var{pp}~(\fun{languages}~{txw})~(\fun{txrdmrs}~{txw})~(\fun{txdats}~{txw})\]
+
+    ensures that the hash of the cost models of the script languages in the transaction, together
+    with the attached redeemers, is the same
+
+
+    $((\var{sc}, \var{d}, \var{eu}, \var{cm});\Gamma)$
+  \end{itemize}
 \end{proof}
 \end{property}
 
 \begin{enumerate}
 \item
-  \emph{Transaction Validation.}
-  If a Shelley transaction is accepted, it is fully processed.
-
-  What does this mean? Is this: Transaction consistency - any transaction that is successfully validated can be executed successfully by the interpreter.
-\item
   \emph{Extended UTxO Validation.}
   If a transaction extends the UTxO, all its scripts validate, and
   if it has a script that does not validate, it cannot extend the
   UTxO.
-\item
-  \emph{Non-Token Minting.}
-  A valid transaction that does not mint tokens satisfies the
-  accounting property of the Shelley ledger where the type $\Coin$ is
-  replaced by $\Value$.
-\item
-  \emph{Script consistency.} Scripts are only processed by valid version of the interpreter.
-\item
-  \emph{Script backwards compatibility.} All scripts that could be processed by any previous version of the interpreter
-    remain valid indefinitely.
-\item
-  \emph{Cost consistency.} - no transaction exceeds the specified resource bounds.
 \item
   \emph{Cost Increase.} if a transaction is valid, it will remain valid if you increase the execution units
 \item
@@ -250,8 +356,6 @@ get all the correct inputs, which must be present.
 \item \emph{Determinism of script validation.} In an otherwise valid transaction which remains valid
   despite ledger state changes, the outcome
   of script validation is not affected by these ledger state changes.
-\item \emph{Script inputs are fixed.} All data that a non-native script gets as input
-is fixed either by being signed in a transaction, or fixed by its hash living on the ledger
 \item
   ... \todo{Anything else?}
 \end{enumerate}
