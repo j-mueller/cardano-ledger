@@ -213,13 +213,20 @@ Only the $\mathsf{UTXOS}$ transition affects the ledger UTxO in Alonzo.
 \end{proof}
 \end{property}
 
-\begin{property}[Script interpreter inputs are fixed]
+\begin{property}[Script interpreter arguments are fixed (deterministic script evaluation)]
   \label{prop:fixed-inputs}
 
 For this property to hold, we make an important assumption about the Plutus script
-interpreter : it is a pure function that receives only the inputs provided by the ledger when it is
+interpreter : it is a pure function that receives only the arguments provided by the ledger when it is
 invoked by calling the $\fun{runPLCScript}$ function. In particular, it does not
-obtain any system randomness, etc. With this in mind, we can make the claim that
+obtain any system randomness, etc. In addition, we assume that the consensus
+function $\fun{epochInfoSlotToUTCTime}$ for converting a slot interval into a
+system time interval is deterministic. Furthermore, we assume that the two global
+constants, $\EpochInfo$ and $\SystemStart$, which it also takes as parameters,
+cannot change within the span of an interval on which $\fun{epochInfoSlotToUTCTime}$
+succeeds in doing the conversion.
+
+With this in mind, we can make the claim that
 all the data that a non-native script interpreter gets as input
 is fixed either by
 
@@ -227,6 +234,10 @@ is fixed either by
   \item the input itself (or its hash) being inside the transaction body --- and therefore signed, or
   \item fixed by it (or its hash) having been recorded on the ledger
 \end{itemize}
+
+The fixed argument values provided by the ledger, together with the assumption that there
+are no additional data the interpreter can inspect, allows us to say that
+script evaluation is entirely deterministic. More precisely, we say that
 
 \begin{lemma}
   For all environments $e, e'$, transactions $tx, tx'$ and states $s, s', u, u'$ such that
@@ -262,7 +273,7 @@ is fixed either by
       as part of running $\fun{evalScripts}$, and
       \item the outcome of native script evaluation by $\fun{evalScripts}$ is the
       same as the outcome of evaluating them in phase-1, since
-      it calls the same evaluation function on the same inputs in both cases
+      it calls the same evaluation function on the same arguments in both cases
       \[\fun{evalTimelock}~\var{tx}~\var{sc}\]
       Note here that we are considering only phase-1 valid transactios here (as we started
       with the assumptions of having valid ledger transitions), therefore
@@ -274,15 +285,16 @@ is fixed either by
     transition case, as it is for $e', u, tx', u'$. The list is constructed by the
     function $\fun{collectTwoPhaseScriptInputs}$ (see \ref{fig:functions:script2}).
     The order of the list does not affect the validation outcome, since the interpreter is run
-    on each pair of a script and its inputs independently of all other pairs in the list.
+    on each tuple of a script and its arguments independently of all other tuples in the list.
     The function $\fun{evalTimelock}$ is a $\wedge$-fold over the list. Thus, we ignore the order
     of the elements in the generated list.
 
     \textbf{Scripts and script purposes : } The $\fun{collectTwoPhaseScriptInputs}$
-    function makes a list of out the set of all pairs that associate a Plutus script
-    with its inputs. Each script in the list corresponds to one returned by
+    function makes a list that contains all pairs of a Plutus script
+    with the argumets passed to the interpreter for its evaluation.
+    Each script in the list corresponds to a hash returned by
     the $\fun{scriptsNeeded}$ function, which returns the collection of
-    all scripts (together with their script purposes) needed for validating the UTxOs being spent,
+    all hashes of the scripts (together with their script purposes) needed for validating the UTxOs being spent,
     the policies of the tokens being minted, rewards being withdrawn, and the certificates
     in the transaction.
 
@@ -301,37 +313,84 @@ is fixed either by
     So, like other script purposes (policy IDs, etc.), the script purposes corresponding to
     transaction inputs are always paired with a script hash fixed by the transaction body.
 
-    \textbf{Scripts inputs : } The inputs to the scripts that are collected
-    by $\fun{collectTwoPhaseScriptInputs}$ must also be the same for each script in both cases.
-    In the case of native scripts, the inputs are never inspected at all.
-    The list of inputs for each non-native scripts is made up of the following
-    (always in the same order):
+    The UTXOW rule checks that the script hashes collected by $\fun{scriptsNeeded}$
+    are exactly the hashes of the scripts attached to the transaction. Therefore, the
+    attached scripts of $tx$ and $tx'$ are the same, ie.
+
+    \[ \fun{scriptsNeeded}~\Utxo(s)~tx = \fun{scriptsNeeded}~\Utxo(u)~tx' \]
+
+    \textbf{Interpreter (and script) arguemnts : } The arguments passed to the interpreter
+    that are collected
+    by $\fun{collectTwoPhaseScriptInputs}$ must also be the same for each
+    of the script-hash and puropse pairs returned by $\fun{scriptsNeeded}$.
+    In the case of native scripts, the arguments are never inspected at all.
+    The list of arguments for a given non-native scripts is made up of the following
+    terms. These terms are
+    always listed in the same order --- datum (if the script purpose is an input), redeemer, context, execution units,
+    cost model.
 
     \begin{itemize}
       \item Datums : a datum is the first element of the input list whenever
       the function $\fun{getDatum}$ (Figure \ref{fig:functions:script2})
-      finds one attached to the transaction. The datum it returns is one that
-      is associated with the $\ScriptPurpose$ of the script for which
-      this list of inputs is being compiled. 
-      \item Redeemers :
-      transaction
-      \item Context :
-      \item Execution units :
-      \item Cost model :
+      finds one attached to the transaction. In the case the script purpose
+      is of the input type, the datum it returns is one that
+      is associated with the corresponding realized input. More precisely, it is the datum whose
+      hash is specified in the realized input, and is looked up by hash in the $\fun{txdats}$
+      transaction field. If there is no datum hash in the realized input, or the script purpose
+      is of a non-input type, no datum is added to the input list of the script.
+
+      The UTXOW rule checks that the transaction is carrying all datums corresponding
+      to its realized inputs. Thus, we can say that for both $tx$ and $tx'$, the
+      $\fun{getDatum}$ function returns the same datums for each hash-purpose
+      pair returned by $\fun{scriptsNeeded}$ (recall that this set of pairs
+      are the same for both transactions).
+
+      \item Redeemers, execution units, and the cost model : these inputs are are fixed by the body of the transaction
+      by the precondition in the UTXOW rule
+      which checks contents of the $\fun{wppHash}$ field in the body a transaction against the calculated hash
+      of the tuple of the script data structure attached to the transaction, the cost models for the
+      languages of the transaction's scripts, and the attached datum objects. Since the bodies of
+      the two transactions are the same, the fields hashed by $\fun{hashWitnessPPData}$ must also be the same.
+
+      \item Context : For each for the pairs returned by $\fun{scriptsNeeded}$,
+      the context, built by $\fun{valContext}$, is made up of the constructed $\TxInfo$ (which is unique for
+      a given transaction), and the script purpose from the script hash and purpose pair.
+      We now demonstrate that each field of the $\TxInfo$ structure must be
+      the same for two transactions with the same body, so
+
+      \[ \fun{txInfo}~\wcard~\Utxo(s)~\var{tx} = \fun{txInfo}~\wcard~\Utxo(u)~\var{tx'}\]
+
+      We omitted the first argument, which is a script language, because in this proof, we only consider
+      a single non-native script language, $\PlutusVI$. All fields of the $\TxInfo$
+      structure, with the exceptions listed below,
+      are obtained directly from the transaction body (see \ref{sec:txinfo}),
+      and therefore must be the same in $tx$ and $tx'$. The fields not directly
+      appearing in the body are :
+
+      \begin{itemize}
+        \item $\fun{txInfoInputs}$ : this field contains the realized inputs of
+        the transaction which are fixed by the transaction and the unique
+        UTxO entries to which the inputs correspond
+
+        \item $\fun{txInfoValidRange}$ : this field contains the transaction
+        validity interval as system time (converted from the slot numbers, which are
+        used to speficy the interval in the transaction body). This conversion is
+        done by a function defined in the consensus layer, and takes two global
+        constants in addition to the slot interval itself. Since the slot interval
+        conversion function $\fun{epochInfoSlotToUTCTime}$ necessarily
+        succeeds if both $tx$ and $tx'$ pass phase-1 validation, the additional
+        global constant arguments must be the same (by assumption). The determinism of this conversion
+        is one of the assumptions of this property.
+
+        \item $\fun{txInfoData}$ : this field is populated with the datums (and their
+        hashes) in the transaction field $\fun{txdats}$, which is fixed by the body
+        via the $\fun{wppHash}$ field
+
+        \item $\fun{txInfoId}$ : this field contains the hash of the transaction body,
+        which is clearly the same for transactions with the same body
+      \end{itemize}
     \end{itemize}
 
-
-    We can tell by inspecting this function that it does not
-    inspect all protocol parameters, but only the cost models. The cost models for
-    since the check (in UTXOW)
-
-    \[\fun{wppHash}~{txb}~=~\fun{hashWitnessPPData}~\var{pp}~(\fun{languages}~{txw})~(\fun{txrdmrs}~{txw})~(\fun{txdats}~{txw})\]
-
-    ensures that the hash of the cost models of the script languages in the transaction, together
-    with the attached redeemers, is the same
-
-
-    $((\var{sc}, \var{d}, \var{eu}, \var{cm});\Gamma)$
   \end{itemize}
 \end{proof}
 \end{property}
@@ -353,9 +412,6 @@ is fixed either by
 \item \emph{Scripts are run on correct inputs.}
   A script is run for everything witnessed with a non-native script, and the script will
 get all the correct inputs, which must be present.
-\item \emph{Determinism of script validation.} In an otherwise valid transaction which remains valid
-  despite ledger state changes, the outcome
-  of script validation is not affected by these ledger state changes.
 \item
   ... \todo{Anything else?}
 \end{enumerate}
