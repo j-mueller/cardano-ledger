@@ -79,10 +79,10 @@ import Cardano.Ledger.Address (Addr (..), RewardAcnt (..))
 import Cardano.Ledger.Alonzo.Data (Data, DataHash, hashData)
 import Cardano.Ledger.Alonzo.Language (Language (..), nonNativeLanguages)
 import Cardano.Ledger.Alonzo.PParams
-  (LangDepView (..)
-  , PParams
-  , getLanguageView
-  , encodeLangViews
+  ( LangDepView (..),
+    PParams,
+    encodeLangViews,
+    getLanguageView,
   )
 import Cardano.Ledger.Alonzo.Scripts
   ( CostModel,
@@ -258,8 +258,7 @@ instance Era era => SafeToHash (WitnessPPData era) where
     -- TODO: double check that canonical encodings are used for the langDepView (l)
     let dBytes = if nullDats d then mempty else originalBytes d
         lBytes = serializeEncoding' (encodeLangViews l)
-    in originalBytes m <> dBytes <> lBytes
-
+     in originalBytes m <> dBytes <> lBytes
 
 instance (Era era, c ~ Crypto era) => HashAnnotated (WitnessPPData era) EraIndependentWitnessPPData c
 

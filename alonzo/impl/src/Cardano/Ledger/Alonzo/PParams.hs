@@ -103,10 +103,10 @@ import Data.Coders
 import Data.Default (Default (..))
 import Data.Functor.Identity (Identity (..))
 import Data.Map.Strict (Map)
-import Data.Set (Set)
-import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import GHC.Generics (Generic)
 import NoThunks.Class (NoThunks (..))
 import Numeric.Natural (Natural)
@@ -513,7 +513,7 @@ updatePParams pp ppup =
 -- The LangDepView is a key value pair. The key is the (canonically) encoded
 -- language tag and the value is the (canonically) encoded set of relevant
 -- protocol parameters
-newtype LangDepView = LangDepView { unLangDepView :: (ByteString, ByteString) }
+newtype LangDepView = LangDepView {unLangDepView :: (ByteString, ByteString)}
   deriving (Eq, Show, Ord)
   deriving newtype (NoThunks)
 
@@ -522,14 +522,16 @@ getLanguageView ::
   PParams era ->
   Language ->
   LangDepView
-getLanguageView pp lang@PlutusV1 = LangDepView
-  ( serialize' lang
-  , serializeEncoding' $ maybe encodeNull toCBOR $ Map.lookup lang (_costmdls pp)
-  )
+getLanguageView pp lang@PlutusV1 =
+  LangDepView
+    ( serialize' lang,
+      serializeEncoding' $ maybe encodeNull toCBOR $ Map.lookup lang (_costmdls pp)
+    )
 
 encodeLangViews :: Set LangDepView -> Encoding
-encodeLangViews views = toCBOR $
-  Map.fromList (unLangDepView <$> Set.toList views)
+encodeLangViews views =
+  toCBOR $
+    Map.fromList (unLangDepView <$> Set.toList views)
 
 -- | Turn an PParams' into a Shelley.Params'
 retractPP :: (HKD f Coin) -> PParams' f era2 -> Shelley.PParams' f era1

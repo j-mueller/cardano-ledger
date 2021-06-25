@@ -1,39 +1,34 @@
-{-# language OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-module Test.Cardano.Ledger.Alonzo.Serialisation.Canonical
-  (tests)
-  where
+module Test.Cardano.Ledger.Alonzo.Serialisation.Canonical (tests) where
 
-
-import Test.Tasty
-import Test.Tasty.QuickCheck
+import Cardano.Binary
+  ( Annotator (..),
+    Decoder,
+    TokenType (..),
+    decodeAnnotator,
+    decodeBytesCanonical,
+    decodeDoubleCanonical,
+    decodeIntegerCanonical,
+    decodeMapLenCanonical,
+    decodeSimpleCanonical,
+    decodeStringCanonical,
+    peekTokenType,
+    serializeEncoding,
+    withSlice,
+  )
+import Cardano.Ledger.Alonzo.Language (Language)
+import Cardano.Ledger.Alonzo.PParams
+import Control.Monad (replicateM, unless)
+import qualified Data.ByteString.Base16 as B16
+import Data.ByteString.Lazy as LBS
+import Data.Functor.Compose (Compose (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Cardano.Ledger.Alonzo.PParams
-import Data.ByteString.Lazy as LBS
-import Cardano.Ledger.Alonzo.Language (Language)
-import Cardano.Binary
-  ( Decoder
-  , Annotator (..)
-  , TokenType (..)
-  , serializeEncoding
-  , decodeAnnotator
-  , peekTokenType
-  , decodeIntegerCanonical
-  , decodeDoubleCanonical
-  , decodeBytesCanonical
-  , decodeStringCanonical
-  , decodeSimpleCanonical
-  , decodeMapLenCanonical
-  , withSlice
-  )
-import Control.Monad (replicateM, unless)
-import Data.Functor.Compose (Compose (..))
 import Test.Cardano.Ledger.Alonzo.Serialisation.Generators ()
-
 import qualified Test.QuickCheck.Property as QCP
-
-import qualified Data.ByteString.Base16 as B16
+import Test.Tasty
+import Test.Tasty.QuickCheck
 
 tests :: TestTree
 tests = testProperty "LangDepView encoding is canonical" canonicalLangDepView
@@ -49,33 +44,33 @@ canonicalLangDepView pparams langs =
 
 isCanonical :: LBS.ByteString -> Either String ()
 isCanonical bytes =
- case decodeAnnotator "canonicity check" checkCanonicalTerm bytes of
-   Left err -> Left (show err)
-   Right x -> x
+  case decodeAnnotator "canonicity check" checkCanonicalTerm bytes of
+    Left err -> Left (show err)
+    Right x -> x
 
 checkCanonicalTerm :: Decoder s (Annotator (Either String ()))
 checkCanonicalTerm = do
   tt <- peekTokenType
   let t _ = pure (Right ())
   case tt of
-    TypeUInt    -> t <$> decodeIntegerCanonical
-    TypeUInt64  -> t <$> decodeIntegerCanonical
-    TypeNInt    -> t <$> decodeIntegerCanonical
-    TypeNInt64  -> t <$> decodeIntegerCanonical
+    TypeUInt -> t <$> decodeIntegerCanonical
+    TypeUInt64 -> t <$> decodeIntegerCanonical
+    TypeNInt -> t <$> decodeIntegerCanonical
+    TypeNInt64 -> t <$> decodeIntegerCanonical
     TypeInteger -> t <$> decodeIntegerCanonical
     TypeFloat16 -> t <$> decodeDoubleCanonical
     TypeFloat32 -> t <$> decodeDoubleCanonical
     TypeFloat64 -> t <$> decodeDoubleCanonical
-    TypeBytes   ->  t <$> decodeBytesCanonical
-    TypeBytesIndef  -> fail "indefinite bytes encoding"
-    TypeString       -> t <$> decodeStringCanonical
-    TypeStringIndef  -> fail "indefinite string encoding"
+    TypeBytes -> t <$> decodeBytesCanonical
+    TypeBytesIndef -> fail "indefinite bytes encoding"
+    TypeString -> t <$> decodeStringCanonical
+    TypeStringIndef -> fail "indefinite string encoding"
     --TypeListLen ->
     --TypeListLen64 ->
     TypeListLenIndef -> fail "indefinite list encoding"
     TypeMapLen -> checkCanonicalMap
     TypeMapLen64 -> checkCanonicalMap
-    TypeMapLenIndef  -> fail "indefinite map encoding"
+    TypeMapLenIndef -> fail "indefinite map encoding"
     --TypeTag ->
     --TypeTag64 ->
     --TypeBool ->
@@ -83,7 +78,7 @@ checkCanonicalTerm = do
     TypeSimple -> t <$> decodeSimpleCanonical
     --TypeBreak ->
     --TypeInvalid ->
-    _  -> fail "canonicity check not implemented"
+    _ -> fail "canonicity check not implemented"
 
 {-
 - The keys in the map must be sorted as follows:
@@ -104,19 +99,20 @@ checkCanonicalMap = do
   keys <- replicateM n checkCanonicalKVPair
   let keys' :: Annotator (Either String [ByteString])
       keys' = (getCompose . sequenceA . fmap Compose) keys
-  pure $ Annotator $ \fullBytes -> do
+  pure $
+    Annotator $ \fullBytes -> do
       ks <- runAnnotator keys' fullBytes
       unless (isSorted ks) (Left "map keys out of order")
 
 isSorted :: [ByteString] -> Bool
 isSorted [] = True
 isSorted [_] = True
-isSorted (x:(xs@(y:_))) = case shortLex x y of
+isSorted (x : (xs@(y : _))) = case shortLex x y of
   GT -> False
   _ -> isSorted xs
 
 checkCanonicalKVPair :: Decoder s (Annotator (Either String ByteString))
 checkCanonicalKVPair = do
-    (key, keyBytes) <- withSlice checkCanonicalTerm
-    value <- checkCanonicalTerm
-    pure $ getCompose (Compose key *> Compose value *> Compose (Right <$> keyBytes))
+  (key, keyBytes) <- withSlice checkCanonicalTerm
+  value <- checkCanonicalTerm
+  pure $ getCompose (Compose key *> Compose value *> Compose (Right <$> keyBytes))
