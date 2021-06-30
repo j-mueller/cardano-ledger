@@ -406,9 +406,26 @@ value of the $\IsValid$ tag, which it checks using the $\fun{evalScripts}$ funct
 In general, there is no way to check \emph{a-priori} that the budget that has been supplied is sufficient for the transaction.
 This can only be done by actually running the scripts. From the perspective of the ledger, there is no difference
 between a script that exhausts the $\ExUnits$ budget during validation, and one that fails to validate.
-If a transaction contains a failing script, the only change to the ledger that is made
-is that the collateral is collected into the fee pot.
 
+\textbf{Transaction integrity and charging for failing scripts.}
+If a transaction contains a failing script, the only change to the ledger that is made
+is that the collateral is collected into the fee pot. It is important to note here
+that it can be the case that the only signatures on a transaction are those
+of the keys for the collateral UTxOs (but this must include at least one signature).
+
+The implication of this is that the collateral key owners may be the only
+users that attest to the integrity of the data in the body of the transaction. These
+same key owners, however, are also the only users who stand to lose money if the
+transaction is modified in some way that results in phase-2 failure.
+Transactions with the same body will necessarily have the same outcome of phase-2
+script validation (we give the details in the deterministic script validation property, \ref{prop:fixed-inputs}).
+Therefore, signing the body ensures any modification to any part of a transaction (including
+witnesses, etc.) or update to the ledger state that affect the transaction's validity will result in a phase-1 failure,
+and no collateral collected. The implication of this is that
+the collateral-locking keys have full control over the outcome of phase-2 validation.
+
+
+\textbf{The $\IsValid$ Tag. }
 It is always in the interest of the slot leader to have the new block validate,
 and for it to contain only valid transactions. This motivates the
 slot leader to:
@@ -417,7 +434,7 @@ slot leader to:
   \item Correctly apply the $\IsValid$ tag;
   \item Include all transactions that validate within the block,
   \textit{even when there is a 2nd phase script validation failure};
-  \item Exclude any transactions that are invalid in some way \textit{other than 2nd step script validation failure}.
+  \item Exclude any transactions that are phase-1 invalid
 \end{enumerate}
 
 One important reason for adding the validation tag
@@ -841,7 +858,7 @@ by the UTXO transition (the application of which is also part of the conditions)
       \\~\\
       \forall \var{vk} \mapsto \sigma \in \txwitsVKey{txw},
       \mathcal{V}_{\var{vk}}{\serialised{txbodyHash}}_{\sigma} \\
-      \hldiff{\fun{witsVKeyNeeded}~{utxo}~{tx}~{genDelegs} \subseteq \var{witsKeyHashes}}
+      \fun{witsVKeyNeeded}~{utxo}~{tx}~{genDelegs} \subseteq \var{witsKeyHashes}
       \\~\\
       genSig \leteq
       \left\{

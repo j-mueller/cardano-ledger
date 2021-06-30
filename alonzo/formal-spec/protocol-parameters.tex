@@ -52,7 +52,8 @@ period between transaction
 submission and completion of the script processing.
 %
 In order to achieve this,
-any data that is passed to the interpreter must be determined by the transaction body itself.
+any data that is passed to the interpreter must be determined by the transaction body.
+In property \ref{prop:fixed-inputs}, we make precise what deterministic script evaluation means.
 The transaction body therefore includes a hash of any such data that is not uniquely determined by other parts of the transaction body or the UTXO.
 When the transaction is processed, as part of the UTXOW rule, this hash is compared with a hash of the data that is passed to the interpreter. This
 ensures that scripts are only executed if they have been provided with the intended data.
