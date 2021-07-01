@@ -118,12 +118,6 @@ import Cardano.Ledger.Era(Era)
 import NoThunks.Class()  -- Instances only
 import Debug.Trace(trace)
 
-
-myDiscard :: String -> a
-myDiscard message = trace ("Discard: "++message) discard
-
-import Debug.Trace(trace)
-
 myDiscard :: [Char] -> a
 myDiscard message = trace ("\nDiscarded trace: "++message) discard
 
