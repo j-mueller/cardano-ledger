@@ -232,15 +232,19 @@ the body of the transaction:
     one set of inputs is ever collected : collateral ones in the case of script failure, and regular inputs
     in the case when all scripts validate.
 
-  \item There is a new field called $\fun{reqSignerHashes}$ that is used to specify a set of signers (via the
-    hashes of their VKeys) that the scripts a transaction is carrying expect to have signed the transaction.
-    These signatures are required in addition to the ones required by VKey addresses, and
-    these keys are passed to the Plutus scipts during validation.
+  \item There is a new field called $\fun{reqSignerHashes}$ that is used to specify a set of hashes
+  of keys that must sign the transaction in addition to the signatures required to validate
+  spending from VKey addresses, checking certificate validity, and validating reward withdrawals.
+  This field is there to allow users to add signatures that
+  \begin{itemize}
+    \item cannot be stripped from a transaction without invalidating it in phase 1 (ie. the
+    validation phase where fees are not collected for the validation work done)
+    \item are not attached to any validation being done in phase 1, such as VKey output spending
+  \end{itemize}
 
-    Unlike signatures required by MSig scripts, the signatures of the keys
-    (whose hashes are) included
-    in this field can never be stripped from the transaction. This is because
-    the hashes of the signing keys are listed inside the signed body.
+  This is a field where users can add signatures that a non-native script requires internally -
+  the transaction and the ledger are otherwise unaware of what signatures are expected by these scripts.
+  
   \item We include a hash of some script-related data, specifically the redeemers and protocol parameters,
     with accessor $\fun{wppHash}$.
 

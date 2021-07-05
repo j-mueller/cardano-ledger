@@ -2,6 +2,8 @@
 \label{sec:properties}
 
 This appendix collects the main formal properties that the new ledger rules are expected to satisfy.
+Note here that in every property in this section we consider a only phase-1 valid
+transactions, ie. ones that can indeed get processed.
 
 \begin{enumerate}[label=P{\arabic*}:\ ]
 \item
@@ -82,35 +84,57 @@ Both of these are expressed in the following lemma.
 \end{proof}
 \end{property}
 
-\begin{property}[No Changes Except Fees]
+\begin{property}[Extended UTxO Validation]
   \label{prop:fees-only}
+
+  If a phase-1 valid transaction extends the UTxO, all its scripts validate
+  (i.e. $\fun{txValTag}~tx = \True$).
+
   If a transaction is accepted and marked as paying collateral only
   (i.e. $\fun{txValTag}~tx = \False$), then the only change to the ledger
   when processing the transaction is that the collateral inputs
-  are moved to the fee pot.
+  are moved to the fee pot. In particular, it does not extend the UTxO.
 
   \begin{lemma}
-    For all environments $e$, transactions $tx$ and states $s, s'$, if $\fun{txvaltag}~tx = \False$ and
+    For all environments $e$, transactions $tx$ and states $s, s'$, if  and
     \begin{equation*}
       e\vdash s\trans{ledger}{tx}s'
     \end{equation*}
     then
+    \[\Utxo(s') \nsubseteq \Utxo(s)~\Rightarrow~\fun{txValTag}~tx = \True \]
+
+    Also,
+    \[\fun{txvaltag}~tx = \False~ \Rightarrow~\]
     \begin{itemize}
-      \item $\Utxo(s') = \fun{collateral}~{tx} \subtractdom \Utxo(s)$
+      \item $ \field_{v}~(s') = \field_{v}~(s) \text{ for all } v~\neq~{fees}, ~v~\neq~{utxo}$
       \item $\field_{fees}~(s') = \field~\var{fees}~(s) + \fun{coin}~(\Val~(\fun{collateral}~{tx} \subtractdom \Utxo(s)))$
-      \item $\field_{v}~(s') = \field_{v}~(s)$ for all $v~\neq~{fees}, ~v~\neq~{utxo}$
+      \item $\Utxo(s') = \fun{collateral}~{tx} \subtractdom \Utxo(s)$
     \end{itemize}
   \end{lemma}
 
   \begin{proof}
-  The top-level single-transaction processing transition is $\mathsf{LEDGER}$.
-   In the case that $\fun{txValTag}~tx = \False$, this transition calls the rule
+    A ledger UTxO update is specified explicitly only by the $\mathsf{UTXOS}$ transition,
+    and propagated (ie. applied as-specified) to a chain-state update via the
+    $\mathsf{UTXO}$ and $\mathsf{UTXOW}$ transitions.
+
+    The only case in which the $\mathsf{UTXOS}$ transition adds entries to the UTxO
+    map is in the $\mathsf{Scripts-No}$ rule, when $\fun{txValTag}~tx = \True$.
+    Adding entries to the UTxO map implies exactly that the updated map is not a
+    submap of the original, so we get that
+
+    \[\Utxo(s') \nsubseteq \Utxo(s)~\Rightarrow~\fun{txValTag}~tx = \True \]
+
+   In the case that $\fun{txValTag}~tx = \False$, $\mathsf{LEDGER}$ calls the rule
    that does not update $\DPState$ at all, only the $\UTxOState$. This state update is specified
    in the $\mathsf{UTXOS}$ transition (and applied via the $\mathsf{UTXO}$ and $\mathsf{UTXOW}$ transitions).
 
-   The only parts of the state that are updated are the UTxO, where the collateral entries
-   are removed, and the fee pot, which is increased by the amount of the sum of Ada in the
-   collateral UTxO entries.
+   The only parts of the state that are updated are
+   \begin{itemize}
+     \item the fee pot, which is increased by the amount of the sum of Ada in the
+     collateral UTxO entries, and
+     \item the UTxO, where the collateral entries
+     are removed.
+   \end{itemize}
   \end{proof}
 \end {property}
 
@@ -140,18 +164,75 @@ $\fun{txValTag} = \True$.
 \begin{property}[Paying fees]
   \label{prop:pay-fees}
 
-A transaction always pays into the fee pot.
+If the collateral percent value is set to at least $100$, every transaction pays
+at least the minimum transaction fee amount into the fee pot.
 
 \begin{lemma}
   For all environments $e$, transactions $tx$ and states $s, s'$ such that
   \begin{equation*}
-    e\vdash s\trans{ledger}{tx}s',
+    e\vdash s\trans{ledger}{tx}s'~\wedge~\fun{collateralPercent}~(\field_{pp}~(s))~\geq~100
   \end{equation*}
-  The following holds : $\field_{fees}~(s)~<~\field_{fees}~(s')$.
+  The following holds : $\field_{fees}~(s')~\geq~\field_{fees}~(s)~+~\fun{minfee}~{tx}$.
 \end{lemma}
 \begin{proof}
   The fee pot is updated by the $\mathsf{Scripts{-}Yes}$ and the $\mathsf{Scripts{-}No}$
-  rules, one of which is necessarily called by a valid transaction.
+  rules, one of which is necessarily called by a valid transaction via the sequence
+  of transitions called in the order $\mathsf{LEDGER}, \mathsf{UTXOW}, \mathsf{UTXO}, \mathsf{UTXOS}$.
+  The $\mathsf{Scripts{-}Yes}$ rule transfers the amount of lovelace in the $\fun{txfee}$ field of the
+  transaction to the fee pot, which is checked to be at least the $\fun{minfee}$
+  by $\fun{feesOK}$ in the $\mathsf{UTXO}$ transition.
+
+  The $\mathsf{Scripts{-}No}$ rule removes the $\fun{collateral}$ inputs from the
+  UTxO, and adds the the sum total of lovelace in the UTxOs referenced by
+  the collateral inputs to the fee pot. This for this rule to apply, the
+  transaction is necessarily carrying at least one redeemer. We can conclude that it
+  does carry at least one redeemer from the following observations :
+  \begin{itemize}
+    \item $\fun{evalScripts}$ is a $\wedge$-fold over a list of scripts and
+    their inputs, containing all scripts that need to be run to validate this transaction
+    \item All native scripts must succeed, as this is checked in phase-1 validation. Therefore,
+    $\fun{evalScripts}$ encounters a failing script which is non-native.
+    \item All non-native scripts necessarily have an associated redeemer attached to the
+    transaction
+  \end{itemize}
+  See Property~\ref{prop:fixed-inputs} for more details on what inputs $\fun{evalScripts}$ has,
+  and what we can say about the outcome of its computation with respect to its inputs.
+
+  In the case a transaction is carrying at least one redeemer, $\fun{feesOK}$ check ensures
+  that the sum of lovelace in the realized inputs of the $\fun{collateral}$ field
+  is at least
+  \[\fun{quot}~(\txfee~{txb} * (\fun{collateralPercent}~pp))~100))\]
+
+  which is, since $\fun{collateralPercent}~(\field_{pp}~(s))~\geq~100$,
+
+  \[ \geq~\txfee~{txb}~\geq~\fun{minfee}~{txb} \]
+
+  where $\fun{txbody}~{tx}~=~{txb}$. This shows that the total collateral that gets
+  moved into the fee pot from the UTxO by the $\mathsf{Scripts{-}No}$ rule is at
+  least the minimum transaction fee.
+\end{proof}
+\end{property}
+
+\begin{property}[Correct tag]
+  \label{prop:correct-tag}
+
+The $\fun{txValTag}~tx$ tag of a phase-1 valid transaction must match the result of the $\fun{evalScripts}$
+function for that transaction.
+
+\begin{lemma}
+  For all environments $e$, transactions $tx$ and states $s, s'$ such that
+  \begin{equation*}
+    e\vdash s\trans{utxos}{tx}s',
+  \end{equation*}
+  The following holds :
+    \[\fun{txValTag}~tx \Leftrightarrow \fun{evalScripts}~{tx}~{sLst} \]
+  where
+  \[ \var{sLst} \leteq \fun{collectTwoPhaseScriptInputs} ~\field_{pp}(s)~\var{tx}~ \Utxo(s) \]
+\end{lemma}
+\begin{proof}
+  Inspecting the $\mathsf{Scripts{-}Yes}$ and the $\mathsf{Scripts{-}No}$ rules of the $\mathsf{UTXOS}$ transition,
+  we see that both the $\fun{txValTag}$ and the result of $\fun{evalScripts}$
+  are $\True$ in the former, and $\False$ in the latter.
 \end{proof}
 \end{property}
 
@@ -194,63 +275,80 @@ replay protection.
 \begin{property}[UTxO-changing transitions]
   \label{prop:utxo-change}
 
-Only the $\mathsf{UTXOS}$ transition affects the ledger UTxO in Alonzo.
+The $\mathsf{UTXOS}$ transition fully specifies the change in the ledger $\UTxO$
+for each transaction.
 
 \begin{lemma}
-  For all environments $e$, transitions $\mathsf{TRNS}$, signals $f$ and states $s, s'$ such that
+  For all environments $e$, transitions $\mathsf{TRNS}$, transactions $tx$ and states $s, s'$ such that
   \begin{equation*}
-    e\vdash s\trans{trns}{f}s',
+    e\vdash s\trans{trns}{tx}s'
   \end{equation*}
   The following holds :
   \begin{equation*}
-    \Utxo(s) \neq \Utxo (s')~ \Rightarrow~\mathsf{TRNS}~=~\mathsf{UTXOS}
+    \Utxo(s) \neq \Utxo(s')~\Leftrightarrow~e'\vdash u\trans{utxos}{tx}u'
   \end{equation*}
+  where $\Utxo(s) = \Utxo(u)~\wedge~\Utxo(s') = \Utxo(u')$ for some environment $e'$,
+  and states $u, u'$.
 \end{lemma}
 \begin{proof}
-  By inspecting each transition in this specification, as well as those inherited from the
-  Shelley one, we see that any update from the UTxO of $s$ to that of $s'$
-  must be done by $\mathsf{UTXOS}$.
+  \begin{itemize}
+    \item [$\Rightarrow$] By inspecting each transition in this specification, as well as those inherited from the
+    Shelley one, we see that a non-trivial update from the UTxO of $s$ to that of $s'$
+    must be done by $\mathsf{UTXOS}$. Every other transition that changes the UTxO and
+    has a signal of type $\Tx$ only applies the $\mathsf{UTXOS}$.
+    \item [$\Leftarrow$] The $\mathsf{UTXOS}$ transition changes the UTxO via either
+    of its two rules.
+  \end{itemize}
 \end{proof}
 \end{property}
 
 \begin{property}[Script interpreter arguments are fixed (deterministic script evaluation)]
   \label{prop:fixed-inputs}
 
-In this formal specification, the Plutus script
-interpreter is a pure function that receives only the arguments provided by the ledger when it is
-invoked by calling the $\fun{runPLCScript}$ function. We assume that this is
-also true in an implementation. In particular, the interpreter does not
-obtain any system randomness, etc. Another difference between this specification and
-an implementation is that we do not check here that the hashes that are the keys of the
-$\fun{txscripts}$ and $\fun{txdats}$ fields are indeed hashes of the scripts and
-datum objects they index. This is because these hashes must be computed as part of
-the deserialization of a transaction (see the CDDL specification),
-instead of being transmitted as part of the transaction and then checked. We
-assume these hashes are correct.
+For this property, we make some assumptions about things that are outside the scope of this specifications :
 
-In addition, we assume that the consensus
-function $\fun{epochInfoSlotToUTCTime}$ for converting a slot interval into a
-system time interval is also deterministic. Furthermore, we assume that the two global
-constants, $\EpochInfo$ and $\SystemStart$, which it also takes as parameters,
-cannot change within the span of an interval for which $\fun{epochInfoSlotToUTCTime}$
-is able to convert both endpoints to system time.
+\begin{itemize}
+  \item The Plutus script
+  interpreter is a pure function that receives only the arguments provided by the ledger when it is
+  invoked by calling the $\fun{runPLCScript}$ function. We assume that this is
+  also true in an implementation. In particular, the interpreter does not
+  obtain any system randomness, etc.
 
-With this in mind, we can make the claim that
-all the data that a non-native script interpreter gets as input
-is fixed either by the argument itself (or its hash) being inside the transaction body.
+  \item We do not need to check here that the hashes that are the keys of the
+  $\fun{txscripts}$ and $\fun{txdats}$ fields match the computed hashes of the scripts and
+  datum objects they index. This is because these hashes must be computed as part of
+  the deserialization of a transaction (see the CDDL specification),
+  instead of being transmitted as part of the transaction and then checked. We
+  assume these hashes are correct.
 
-The fixed argument values provided by the ledger, together with the assumption that there
-is no additional data the interpreter can inspect, allows us to say that
-script evaluation is entirely deterministic.
+  \item We assume that the consensus
+  function $\fun{epochInfoSlotToUTCTime}$ for converting a slot interval into a
+  system time interval is deterministic.
 
-We split this result into a lemma and its corollary.
-First we demonstrate that all the scripts and their arguments that are
-collected for phase-2 validation are the same for two transactions with the same body.
-Note here that we do not need to add to our lemma's assumptions anything about the ledger
-state to which they are being applied, only that they can be applied to it
-(ie. phase-1 valid). We can make this precise as follows :
+  \item We assume that the two global
+  constants, $\EpochInfo$ and $\SystemStart$, which it also takes as parameters,
+  cannot change within the span of an interval for which $\fun{epochInfoSlotToUTCTime}$
+  is able to convert both endpoints to system time.
+\end{itemize}
+
+The assumptions above are implicit in the functional style of definitions in this
+specification, but they are worth pointing out for implementation.
+With these assumptions in mind, we can say that
+script evaluation is deterministic.
+
+We split this result into a lemma and its corollary :
+
+\begin{itemize}
+  \item First, we demonstrate that all the scripts and their arguments that are
+  collected for phase-2 validation are the same for two phase-1 valid transactions with the same body,
+  independent of the (necessarily valid) ledger state to which they are being applied
+
+  \item Second, we derive the corollary that under the same validity assumptions,
+  phase-2 validation results in the same outcome for both transactions
+\end{itemize}
 
 \begin{lemma}
+  \label{lem:inputs}
   For all environments $e, e'$, transactions $tx, tx'$ and states $s, s', u, u'$ such that
   $e$ and $s$ are subsets of fields of some valid chain state $c$, and
   $e'$ and $s'$ are subsets of fields of some valid chain state $c'$,
@@ -264,7 +362,7 @@ state to which they are being applied, only that they can be applied to it
   The following holds :
 
   \[\forall ~tp,~tp~\in~\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(s)~\var{tx}~ \Utxo(s)\]
-  \[ \Rightleftarrow \]
+  \[ \Leftrightarrow \]
   \[tp~\in~\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(u)~\var{tx'}~ \Utxo(u)\]
 
 \end{lemma}
@@ -364,7 +462,9 @@ state to which they are being applied, only that they can be applied to it
       \begin{itemize}
         \item $\fun{txInfoInputs}$ : this field contains the realized inputs of
         the transaction which are fixed by the transaction and the unique
-        UTxO entries to which the inputs correspond.
+        UTxO entries to which the inputs correspond. As explained above,
+        accessing information in realized inputs for script evaluation
+        does not break determinism.
 
         \item $\fun{txInfoValidRange}$ : this field contains the transaction
         validity interval as system time (converted from the slot numbers, which are
@@ -389,7 +489,6 @@ state to which they are being applied, only that they can be applied to it
       the same for two transactions with the same body, ie.
 
       \[ \fun{txInfo}~\PlutusVI~\Utxo(s)~\var{tx} = \fun{txInfo}~\PlutusVI~\Utxo(u)~\var{tx'}\]
-      \end{itemize}
 
     \end{itemize}
 \end{proof}
@@ -397,7 +496,7 @@ state to which they are being applied, only that they can be applied to it
 We can now make the general statement about evaluation of all scripts done in
 phase-2 validation : for any phase-1 valid transactions with the same body,
 the outcome of phase-2 script evaluation is the same. We make the same assumptions
-as in the lemma above.
+as in Lemme \ref{lem:inputs}.
 
 \begin{corollary}
   For all environments $e, e'$, transactions $tx, tx'$ and states $s, s', u, u'$ such that
@@ -409,14 +508,14 @@ as in the lemma above.
   The following holds :
 
   \[\fun{evalScripts}~{tx}~ (\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(s)~\var{tx}~ \Utxo(s))\]
-  \[ \Rightleftarrow \]
+  \[ \Leftrightarrow \]
   \[\fun{evalScripts}~{tx'}~ (\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(u)~\var{tx'}~ \Utxo(u))\]
 
 \end{corollary}
+
 \begin{proof}
   Let us consider the use of arguments of $\fun{evalScripts}$ (see Figure \ref{fig:functions:script2}).
-  \begin{itemize}
-    \item $\var{tx}, \var{tx'}$ : this argument is only inspected in the case that the script $sc$ (the first element
+  The first argument of type $\Tx$ is only inspected in the case that the script $sc$ (the first element
     in the pair at the head of the list of script-arguments pairs is a native script. Since all native scripts
     are checked in phase one of validation (see \ref{fig:rules:utxow-alonzo}) by calling $\fun{validateScript}$
     on all scripts attached to the transaction. For this to apply to $sc$, we must also show
@@ -444,11 +543,11 @@ as in the lemma above.
       phase-1 validation rule, ie.
 
       \[ \forall ~(txt,~ su)~ \in~ \{~(tx,~ s),~(tx',~ u)~\} \]
-      \[\fun{evalScripts}~{txt}~ \fun{collectTwoPhaseScriptInputs} ~\field_{pp}(su)~\var{txt}~ \Utxo(su) \]
-      \[~ \Rightleftarrow ~ \]
+      \[\fun{evalScripts}~{txt}~ (\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(su)~\var{txt}~ \Utxo(su)) \]
+      \[~ \Leftrightarrow ~ \]
       \[(\forall \var{s} \in \range (\fun{txscripts}~{txt}) \cap \ScriptNative,
       \fun{validateScript}~\var{s}~\var{txt}) \]
-      \[ \wedge ~\fun{evalScripts}~{txt}~ \fun{collectTwoPhaseScriptInputs} ~\field_{pp}(su)~\var{txt}~ \Utxo(su) \]
+      \[ \wedge ~\fun{evalScripts}~{txt}~ (\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(su)~\var{txt}~ \Utxo(su)) \]
 
       Recall here that $\fun{validateScript}$ simply calls $\fun{evalTimelock}$ in the
       Alonzo era (on the same arguments as passed to $\fun{validateScript}$).
@@ -469,12 +568,15 @@ as in the lemma above.
 \end{proof}
 \end{property}
 
+
 \begin{enumerate}
 \item
-  \emph{Extended UTxO Validation.}
-  If a transaction extends the UTxO, all its scripts validate, and
-  if it has a script that does not validate, it cannot extend the
-  UTxO.
+  \emph{Commutativity of Translation.} Translate, then apply to Alonzo ledger is
+  the same as apply to MA ledger, then translate the ledger.
+\item
+  \emph{Zero ExUnits.} If a script is run (there’s a redeemer/exunits) , it will fail with 0 units
+\item
+  \emph{Zipper property.}
 \item
   \emph{Cost Increase.} if a transaction is valid, it will remain valid if you increase the execution units
 \item
@@ -483,9 +585,6 @@ as in the lemma above.
   \emph{Tx backwards Compatibility.} Any transaction that was accepted in a previous version of the ledger rules
     has exactly the same cost and effect, except that the transaction output is extended.
 \item \emph{Run all scripts.} All scripts attached to a transaction are run
-\item \emph{Scripts are run on correct inputs.}
-  A script is run for everything witnessed with a non-native script, and the script will
-get all the correct inputs, which must be present.
 \item
   ... \todo{Anything else?}
 \end{enumerate}

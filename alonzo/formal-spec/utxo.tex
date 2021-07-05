@@ -5,8 +5,8 @@
   \emph{Functions}
   %
   \begin{align*}
-    & \fun{isNonNativeScriptAddress} \in \Tx \to \Addr \to \Bool \\
-    & \fun{isNonNativeScriptAddress}~tx~a = \\
+    & \fun{isTwoPhaseScriptAddress} \in \Tx \to \Addr \to \Bool \\
+    & \fun{isTwoPhaseScriptAddress}~tx~a = \\
       &\quad\begin{cases}
         s \in \ScriptNonNative & a \in \AddrScr \land \fun{validatorHash}~a \mapsto s \in \fun{txscripts} (\fun{txwits}~tx) \\
         \False & \text{otherwise}
@@ -42,7 +42,7 @@
 We have added or changed several functions that deal with fees and collateral as shown in Figure \ref{fig:functions:utxo}.
 
 \begin{itemize}
-  \item $\fun{isNonNativeScriptAddress}$ is a predicate that checks
+  \item $\fun{isTwoPhaseScriptAddress}$ is a predicate that checks
   whether an address is used as a script address with a non-native
   script.
   \item $\fun{totExunits}$ calculates the total $\ExUnits$ in a transaction by summing
@@ -99,7 +99,7 @@ the Alonzo era, this is also constant, with value $\mathsf{systemTime}$
     \item certificates in the $\DCert$ list are indexed in the order in which they arranged
     in the (full, unfiltered) list of certificates inside the transaction
     \item the index of a reward account $\var{ract}$ in the the reward withdrawals map is
-    the index of $\var{ract}$ as a key in the (unfiltered) map. The keys of the $\Wdrls$
+    the index of $\var{ract}$ as a key in the (unfiltered) map. The keys of the $\Wdrl$
     map are arranged in the order defined on the $\RewardAcnt$ type, which is a lex order
     on the pair of the $\Network$ and the $\Credential$.
     \item the set of inputs is an ordered set (according to the order defined on
@@ -197,8 +197,13 @@ predict the exact time to which it refers.
   that needs to be passed to the script interpreter. The $\Language$ argument
   is required because different languages have different expectations of the
   format and contents of the $\TxInfo$ summary.
-  It has a $\UTxO$ as its argument to recover the full information of the inputs of the transaction,
-  but only the inputs of the transaction are provided to scripts. For details, see~\ref{sec:txinfo}
+
+  Note that $\fun{txInfo}$ has a $\UTxO$ argument. Even though the full ledger UTxO
+  is passed to it, we define this function in such a way that the only
+  entries in the ledger UTxO map that a Plutus script
+  actually sees via the argument $\fun{txInfo}$ builds are the ones corresponding to the transaction
+  inputs (ie. its realized inputs). This is done in order to maintain
+  deterministic evaluation. For details, see~\ref{sec:txinfo}
 
 \item
   $\fun{valContext}$ constructs the \emph{validation context}. A validation context is
@@ -249,6 +254,12 @@ which has the information to do this correctly for
   the consensus's forecast window)
 \end{itemize}
 
+Note that because of this potential slot length change nuance, Plutus scripts will
+not receive any information in terms of slot numbers (no native scripts, no
+validity intervals as slots, and not the current slot). Native timelock scripts
+continue to operate on validity interval data expressed as slot numbers, and are
+therefore vulnerable to the consequences of changing the slot length.
+
 \textbf{Validation context construction.}
   As additional non-native scripting languages become supported in the future, scripts of different
   languages may expect different (or differently structured) transaction and ledger data summary.
@@ -274,11 +285,21 @@ which has the information to do this correctly for
   Script authors must keep this in mind when writing scripts, since the ledger call to the interpreter is oblivious to what
   arguments are required.
 
-  Datum objects are required for all output-locking non-native scripts. That is, a
-  non-native script-locked output that does not include a datum hash is unspendable.
-  Non-output scripts do not expect datum objects - that is, it is not possible to pass
-  a datum to a script used for another purpose (certificate, etc.). Redeemers
-  are required for all non-native scripts.
+  The following is a summary of what arguments are required for what scripts:
+  \begin{itemize}
+    \item Datum objects are required for all output-locking non-native scripts. That is, a
+    non-native script-locked output that does not include a datum hash is unspendable.
+    \item Non-output locking scripts do not expect datum objects - that is, it is not possible to pass
+    a datum to a script used for another purpose (certificate, etc.).
+    \item Redeemers are required for all non-native scripts.
+  \end{itemize}
+
+   If a transaction carrying a Plutus script is missing any inputs required
+   to run a script, we have specified this to be a phase 1
+   ledger failure, and the script is never run (even if its code does not look at
+   the missing input). The reason for this approach is that
+   not passing all inputs results in a script never actually getting run,
+   rather than running and failing.
 
 \begin{figure*}[htb]
   \emph{Abstract Script Validation Types}
@@ -852,7 +873,7 @@ by the UTXO transition (the application of which is also part of the conditions)
       \hldiff{\forall \var{s} \in \range (\fun{txscripts}~{txw}) \cap \ScriptNative,
       \fun{validateScript}~\var{s}~\var{tx}}\\~\\
       \hldiff{\{ s \mid (\_, s) \in \fun{scriptsNeeded}~\var{utxo}~\var{tx}\} = \dom (\fun{txscripts}~{txw})} \\~\\
-      \hldiff{\{ h \mid (\_ \mapsto (a, \_, h)) \in \txins{txb} \restrictdom \var{utxo}, \fun{isNonNativeScriptAddress}~{tx}~{a}\} } \\
+      \hldiff{\{ h \mid (\_ \mapsto (a, \_, h)) \in \txins{txb} \restrictdom \var{utxo}, \fun{isTwoPhaseScriptAddress}~{tx}~{a}\} } \\
       \hldiff{\subseteq \dom (\fun{txdats}~{txw})} \\~\\
       \hldiff{\forall sph \in \fun{scriptsNeeded}~\var{utxo}~\var{tx},~ \fun{checkScriptData}~tx~utxo~sph}
       \\~\\
