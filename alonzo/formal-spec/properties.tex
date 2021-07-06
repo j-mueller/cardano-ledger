@@ -225,7 +225,7 @@ function for that transaction.
     e\vdash s\trans{utxos}{tx}s',
   \end{equation*}
   The following holds :
-    \[\fun{txValTag}~tx \Leftrightarrow \fun{evalScripts}~{tx}~{sLst} \]
+    \[\fun{txValTag}~tx ~=~ \fun{evalScripts}~{tx}~{sLst} \]
   where
   \[ \var{sLst} \leteq \fun{collectTwoPhaseScriptInputs} ~\field_{pp}(s)~\var{tx}~ \Utxo(s) \]
 \end{lemma}
@@ -285,20 +285,16 @@ for each transaction.
   \end{equation*}
   The following holds :
   \begin{equation*}
-    \Utxo(s) \neq \Utxo(s')~\Leftrightarrow~e'\vdash u\trans{utxos}{tx}u'
+    \Utxo(s) \neq \Utxo(s')~\Rightarrow~e'\vdash u\trans{utxos}{tx}u'
   \end{equation*}
   where $\Utxo(s) = \Utxo(u)~\wedge~\Utxo(s') = \Utxo(u')$ for some environment $e'$,
   and states $u, u'$.
 \end{lemma}
 \begin{proof}
-  \begin{itemize}
-    \item [$\Rightarrow$] By inspecting each transition in this specification, as well as those inherited from the
+  By inspecting each transition in this specification, as well as those inherited from the
     Shelley one, we see that a non-trivial update from the UTxO of $s$ to that of $s'$
     must be done by $\mathsf{UTXOS}$. Every other transition that changes the UTxO and
     has a signal of type $\Tx$ only applies the $\mathsf{UTXOS}$.
-    \item [$\Leftarrow$] The $\mathsf{UTXOS}$ transition changes the UTxO via either
-    of its two rules.
-  \end{itemize}
 \end{proof}
 \end{property}
 
@@ -314,6 +310,9 @@ For this property, we make some assumptions about things that are outside the sc
   also true in an implementation. In particular, the interpreter does not
   obtain any system randomness, etc.
 
+  \item We assume that constructing the validation context from $\TxInfo$ and
+  the $\ScriptPurpose$ by $\fun{valContext}$ is deterministic.
+
   \item We do not need to check here that the hashes that are the keys of the
   $\fun{txscripts}$ and $\fun{txdats}$ fields match the computed hashes of the scripts and
   datum objects they index. This is because these hashes must be computed as part of
@@ -327,7 +326,7 @@ For this property, we make some assumptions about things that are outside the sc
 
   \item We assume that the two global
   constants, $\EpochInfo$ and $\SystemStart$, which it also takes as parameters,
-  cannot change within the span of an interval for which $\fun{epochInfoSlotToUTCTime}$
+  cannot change within the span of any interval for which $\fun{epochInfoSlotToUTCTime}$
   is able to convert both endpoints to system time.
 \end{itemize}
 
@@ -370,7 +369,7 @@ We split this result into a lemma and its corollary :
 
     The $\fun{collectTwoPhaseScriptInputs}$
     function (see \ref{fig:functions:script2})
-    makes a list where each entry contains a Plutus script
+    constructs a list where each entry contains a Plutus script
     and the argumets passed to the interpreter for its evaluation.
 
     To show that $\fun{collectTwoPhaseScriptInputs}$ returns a list containing
@@ -378,7 +377,8 @@ We split this result into a lemma and its corollary :
     we observe that
     the set of elements from which this list is produced via $\fun{toList}$
     is generated using the following functions, as well as set comprehension
-    and list operations. We observe that these functions are deterministic
+    and list operations (which are known to be deterministic).
+    We observe that the functions used are deterministic,
     and produce the same output for $tx$ and $tx'$, as all the data they
     inspect is fixed by the transaction body :
 
@@ -428,7 +428,7 @@ We split this result into a lemma and its corollary :
       function must be present in this field.
 
       \item $\fun{indexedRdmrs}$ : like $\fun{scriptsNeeded}$, this function
-      examines four fiedls fixed by the transaction body ($\fun{mint}$, $\fun{txwdrls}$,
+      examines four fields fixed by the transaction body ($\fun{mint}$, $\fun{txwdrls}$,
       $\fun{txcerts}$, and $\fun{txinputs}$).
       It also looks at data in the $\fun{txrdmrs}$ field, which is fixed
       by the transaction body via the $\fun{wppHash}$
@@ -448,10 +448,8 @@ We split this result into a lemma and its corollary :
       time at which it was processed, the field and the calculated hash values
       will not match.
 
-      \item $\fun{valContext}$ and $\fun{txInfo}$ : For each of the pairs returned by $\fun{scriptsNeeded}$,
-      the context, built by $\fun{valContext}$, is built from $\TxInfo$ (which is a single value for
-      a given transaction), and the script purpose from the script hash and purpose pair.
-
+      \item $\fun{valContext}$ and $\fun{txInfo}$ :
+      The $\fun{valContext}$ function is assumed deterministic.
       All fields of the $\TxInfo$
       structure, with the exceptions listed below,
       are straightforward translations of the corresponding transaction body fields (see \ref{sec:txinfo}) that
@@ -496,7 +494,7 @@ We split this result into a lemma and its corollary :
 We can now make the general statement about evaluation of all scripts done in
 phase-2 validation : for any phase-1 valid transactions with the same body,
 the outcome of phase-2 script evaluation is the same. We make the same assumptions
-as in Lemme \ref{lem:inputs}.
+as in Lemma \ref{lem:inputs}.
 
 \begin{corollary}
   For all environments $e, e'$, transactions $tx, tx'$ and states $s, s', u, u'$ such that
@@ -508,14 +506,14 @@ as in Lemme \ref{lem:inputs}.
   The following holds :
 
   \[\fun{evalScripts}~{tx}~ (\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(s)~\var{tx}~ \Utxo(s))\]
-  \[ \Leftrightarrow \]
+  \[ = \]
   \[\fun{evalScripts}~{tx'}~ (\fun{collectTwoPhaseScriptInputs} ~\field_{pp}(u)~\var{tx'}~ \Utxo(u))\]
 
 \end{corollary}
 
 \begin{proof}
   Let us consider the use of arguments of $\fun{evalScripts}$ (see Figure \ref{fig:functions:script2}).
-  The first argument of type $\Tx$ is only inspected in the case that the script $sc$ (the first element
+  The first argument (of type $\Tx$) is only inspected in the case that the script $sc$ (the first element
     in the pair at the head of the list of script-arguments pairs is a native script. Since all native scripts
     are checked in phase one of validation (see \ref{fig:rules:utxow-alonzo}) by calling $\fun{validateScript}$
     on all scripts attached to the transaction. For this to apply to $sc$, we must also show

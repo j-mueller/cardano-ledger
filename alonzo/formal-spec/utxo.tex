@@ -100,7 +100,8 @@ the Alonzo era, this is also constant, with value $\mathsf{systemTime}$
     in the (full, unfiltered) list of certificates inside the transaction
     \item the index of a reward account $\var{ract}$ in the the reward withdrawals map is
     the index of $\var{ract}$ as a key in the (unfiltered) map. The keys of the $\Wdrl$
-    map are arranged in the order defined on the $\RewardAcnt$ type, which is a lex order
+    map are arranged in the order defined on the $\RewardAcnt$ type, which is a lexicographical
+    (abbrv. lex) order
     on the pair of the $\Network$ and the $\Credential$.
     \item the set of inputs is an ordered set (according to the order defined on
     the type $\TxIn$) - this also is the order in which the elements of the set are
@@ -254,7 +255,7 @@ which has the information to do this correctly for
   the consensus's forecast window)
 \end{itemize}
 
-Note that because of this potential slot length change nuance, Plutus scripts will
+Note that because of this potential slot length change issue, Plutus scripts will
 not receive any information in terms of slot numbers (no native scripts, no
 validity intervals as slots, and not the current slot). Native timelock scripts
 continue to operate on validity interval data expressed as slot numbers, and are
