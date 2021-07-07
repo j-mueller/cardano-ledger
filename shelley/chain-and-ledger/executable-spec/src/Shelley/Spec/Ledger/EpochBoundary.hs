@@ -5,6 +5,8 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -32,6 +34,10 @@ module Shelley.Spec.Ledger.EpochBoundary
     obligation,
     maxPool,
     maxPool',
+    StakeDistrPulser (..),
+    PulsingStakeDistr (..),
+    aggregateUtxoCoinByActiveCredential,
+    runToCompletion,
   )
 where
 
@@ -51,20 +57,36 @@ import Cardano.Ledger.Keys (KeyHash, KeyRole (..))
 import Cardano.Ledger.Serialization (decodeRecordNamed)
 import Cardano.Ledger.Val ((<+>), (<×>))
 import qualified Cardano.Ledger.Val as Val
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData (..))
+import Control.Monad.Identity (Identity (..))
 import Control.SetAlgebra (dom, eval, setSingleton, (▷), (◁))
-import Data.Aeson
+import Data.Aeson hiding (decode, encode)
+import Data.Coders
+  ( Decode (..),
+    Encode (..),
+    decode,
+    encode,
+    mapDecode,
+    mapEncode,
+    (!>),
+    (<!),
+  )
 import Data.Default.Class (Default, def)
+import Data.Kind (Type)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Pulse (Pulsable (..))
 import Data.Ratio ((%))
+import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import GHC.Records (HasField, getField)
-import NoThunks.Class (NoThunks (..))
+import NoThunks.Class (NoThunks (..), allNoThunks)
 import Numeric.Natural (Natural)
 import Quiet
 import Shelley.Spec.Ledger.TxBody (PoolParams)
 import Shelley.Spec.Ledger.UTxO (UTxO (..))
+
+-- =======================================================
 
 -- | Blocks made
 newtype BlocksMade crypto = BlocksMade
@@ -219,21 +241,35 @@ instance
       pure $ SnapShot s d p
 
 -- | Snapshots of the stake distribution.
-data SnapShots crypto = SnapShots
-  { _pstakeMark :: SnapShot crypto,
-    _pstakeSet :: !(SnapShot crypto),
-    _pstakeGo :: !(SnapShot crypto),
+data SnapShots era = SnapShots
+  { _pstakeMark :: !(PulsingStakeDistr era Identity),
+    _pstakeSet :: !(SnapShot (Crypto era)),
+    _pstakeGo :: !(SnapShot (Crypto era)),
     _feeSS :: !Coin
   }
-  deriving (Show, Eq, Generic)
 
-instance NoThunks (SnapShots crypto)
+deriving instance Show (UTxO era) => Show (SnapShots era)
 
-instance NFData (SnapShots crypto)
+deriving instance Eq (UTxO era) => Eq (SnapShots era)
+
+deriving instance Generic (SnapShots era)
+
+instance (Era era, NoThunks (UTxO era)) => NoThunks (SnapShots era) where
+  showTypeOf _ = "SnapShots"
+  wNoThunks ctxt (SnapShots mark set go fee) =
+    allNoThunks
+      [ noThunks ctxt mark,
+        noThunks ctxt set,
+        noThunks ctxt go,
+        noThunks ctxt fee
+      ]
+
+instance (Era era, NFData (UTxO era)) => NFData (SnapShots era) where
+  rnf (SnapShots mark set go fee) = seq (rnf mark) (seq (rnf set) (seq (rnf go) (rnf fee)))
 
 instance
-  CC.Crypto crypto =>
-  ToCBOR (SnapShots crypto)
+  (Era era, ToCBOR (UTxO era)) =>
+  ToCBOR (SnapShots era)
   where
   toCBOR (SnapShots mark set go fs) =
     encodeListLen 4
@@ -243,8 +279,8 @@ instance
       <> toCBOR fs
 
 instance
-  CC.Crypto crypto =>
-  FromCBOR (SnapShots crypto)
+  (Era era, FromCBOR (UTxO era), FromCBOR (Core.TxOut era)) =>
+  FromCBOR (SnapShots era)
   where
   fromCBOR = do
     decodeRecordNamed "SnapShots" (const 4) $ do
@@ -254,11 +290,148 @@ instance
       f <- fromCBOR
       pure $ SnapShots mark set go f
 
-instance Default (SnapShots crypto) where
+instance Default (SnapShots era) where
   def = emptySnapShots
 
 emptySnapShot :: SnapShot crypto
 emptySnapShot = SnapShot (Stake Map.empty) Map.empty Map.empty
 
-emptySnapShots :: SnapShots crypto
-emptySnapShots = SnapShots emptySnapShot emptySnapShot emptySnapShot (Coin 0)
+emptySnapShots :: SnapShots era
+emptySnapShots = SnapShots (Completed emptySnapShot) emptySnapShot emptySnapShot (Coin 0)
+
+-- ===================================================================
+-- Pulsing Stake Distribution
+-- ===================================================================
+
+-- | A pulsing implementation of a SnapShot
+data PulsingStakeDistr era m
+  = StillPulsing !(StakeDistrPulser era m (SnapShot (Crypto era))) -- Pulsing work still to do
+  | Completed !(SnapShot (Crypto era)) -- Pulsing work completed, ultimate goal reached
+
+-- | Run a PulsingStakeDistr (a lazy SnapShot) until it is completed.
+runToCompletion ::
+  ( Era era,
+    HasField "address" (Core.TxOut era) (Addr (Crypto era))
+  ) =>
+  PulsingStakeDistr era Identity ->
+  SnapShot (Crypto era)
+runToCompletion (Completed ss) = ss
+runToCompletion (StillPulsing sdp) = runIdentity (completeM sdp)
+
+deriving instance (Eq (UTxO era)) => Eq (PulsingStakeDistr era m)
+
+deriving instance (Show (UTxO era)) => Show (PulsingStakeDistr era m)
+
+deriving instance Generic (PulsingStakeDistr era m)
+
+instance (Era era, NoThunks (UTxO era)) => NoThunks (PulsingStakeDistr era m) where
+  showTypeOf _ = "PulsingStakeDistr"
+  wNoThunks ctxt (StillPulsing x) = allNoThunks [noThunks ctxt x]
+  wNoThunks ctxt (Completed x) = allNoThunks [noThunks ctxt x]
+
+instance (Era era, NFData (UTxO era)) => NFData (PulsingStakeDistr era m) where
+  rnf (StillPulsing x) = (rnf x)
+  rnf (Completed x) = (rnf x)
+
+instance (Typeable m, Era era, ToCBOR (UTxO era)) => ToCBOR (PulsingStakeDistr era m) where
+  toCBOR (StillPulsing p) = encode (Sum (StillPulsing @era) 0 !> To p)
+  toCBOR (Completed r) = encode (Sum (Completed @era) 1 !> To r)
+
+instance (Typeable m, Era era, FromCBOR (UTxO era), FromCBOR (Core.TxOut era)) => FromCBOR (PulsingStakeDistr era m) where
+  fromCBOR = decode (Summands "PulsingStakeDistr" decPSD)
+    where
+      decPSD 0 = (SumD StillPulsing <! From)
+      decPSD 1 = (SumD Completed <! From)
+      decPSD n = Invalid n
+
+-- ===============================================================================
+
+-- | StakeDistrPulser acts like a serializable closure for the lazy computation of a SnapShot.
+data StakeDistrPulser era (m :: Type -> Type) ans where
+  SDP ::
+    (ans ~ SnapShot (Crypto era)) =>
+    !Int ->
+    !(UTxO era) ->
+    !(Map.Map Ptr (Credential 'Staking (Crypto era))) ->
+    !(Map.Map (Credential 'Staking (Crypto era)) (KeyHash 'StakePool (Crypto era))) ->
+    !ans ->
+    StakeDistrPulser era m ans
+
+deriving instance (Eq (UTxO era), Eq ans) => Eq (StakeDistrPulser era m ans)
+
+deriving instance (Show (UTxO era), Show ans) => Show (StakeDistrPulser era m ans)
+
+instance (Era era, NoThunks (UTxO era), c ~ (Crypto era)) => NoThunks (StakeDistrPulser era m (SnapShot c)) where
+  showTypeOf _ = "StakeDistrPulser"
+  wNoThunks ctxt (SDP n u ptrs activedelegs ans) =
+    allNoThunks
+      [ noThunks ctxt n,
+        noThunks ctxt u,
+        noThunks ctxt ptrs,
+        noThunks ctxt activedelegs,
+        noThunks ctxt ans
+      ]
+
+instance (Era era, NFData (UTxO era), c ~ (Crypto era)) => NFData (StakeDistrPulser era m (SnapShot c)) where
+  rnf (SDP n u ptrs active ans) = seq (rnf n) (seq (rnf u) (seq (rnf ptrs) (seq (rnf active) (rnf ans))))
+
+instance (Typeable m, Era era, c ~ Crypto era, ToCBOR (UTxO era)) => ToCBOR (StakeDistrPulser era m (SnapShot c)) where
+  toCBOR (SDP n utxo ptrs active ans) =
+    encode (Rec SDP !> To n !> To utxo !> mapEncode ptrs !> mapEncode active !> To ans)
+
+instance (Typeable m, Era era, c ~ Crypto era, FromCBOR (UTxO era)) => FromCBOR (StakeDistrPulser era m (SnapShot c)) where
+  fromCBOR =
+    decode
+      ( RecD SDP <! From <! From <! mapDecode <! mapDecode <! From
+      )
+
+-- ====================================================================
+
+-- NOW make it an instance of Pulsable, for (StakeDistrPulser era)
+
+instance
+  ( Era era,
+    c ~ Crypto era,
+    HasField "address" (Core.TxOut era) (Addr c)
+  ) =>
+  Pulsable (StakeDistrPulser era)
+  where
+  done (SDP _n (UTxO u) _ptrs _active _ans) = Map.null u
+  current (SDP _n _utxo _ptrs _active ans) = ans
+  pulseM ll@(SDP _n (UTxO u) _ptrs _active _ans) | Map.null u = pure ll
+  pulseM (SDP n (UTxO u) ptrs active (SnapShot (Stake b) ds ps)) = do
+    let (!steps, !smaller_u) = Map.splitAt n u
+        new = SnapShot (Stake (aggregateUtxoCoinByCredential @era ptrs (UTxO steps) b)) ds ps
+    pure (SDP n (UTxO smaller_u) ptrs active new)
+  completeM (SDP _n utxo ptrs active (SnapShot (Stake b) ds ps)) =
+    let stakeRelation = aggregateUtxoCoinByCredential @era ptrs utxo b
+     in pure $ SnapShot (Stake (eval (dom active ◁ stakeRelation))) ds ps
+
+-- | Sum up all the Coin for each active staking Credential
+aggregateUtxoCoinByActiveCredential ::
+  forall era.
+  ( Era era,
+    HasField "address" (Core.TxOut era) (Addr (Crypto era))
+  ) =>
+  Map.Map Ptr (Credential 'Staking (Crypto era)) ->
+  Map.Map (Credential 'Staking (Crypto era)) (KeyHash 'StakePool (Crypto era)) ->
+  UTxO era ->
+  Map.Map (Credential 'Staking (Crypto era)) Coin ->
+  Map.Map (Credential 'Staking (Crypto era)) Coin
+aggregateUtxoCoinByActiveCredential ptrs active (UTxO u) initial =
+  Map.foldl' accum initial u
+  where
+    accum !ans out =
+      case (getField @"address" out, getField @"value" out) of
+        (Addr _ _ (StakeRefPtr p), c) ->
+          case Map.lookup p ptrs of
+            Just cred ->
+              if Map.member cred active -- Add it only if the credential is active.
+                then Map.insertWith (<>) cred (Val.coin c) ans
+                else ans
+            Nothing -> ans
+        (Addr _ _ (StakeRefBase hk), c) ->
+          if Map.member hk active -- Add it only if the credential is active.
+            then Map.insertWith (<>) hk (Val.coin c) ans
+            else ans
+        _other -> ans

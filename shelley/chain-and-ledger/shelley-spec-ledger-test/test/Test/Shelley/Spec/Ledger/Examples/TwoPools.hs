@@ -113,7 +113,7 @@ import Shelley.Spec.Ledger.TxBody
   )
 import Shelley.Spec.Ledger.UTxO (UTxO (..), makeWitnessesVKey)
 import Test.Shelley.Spec.Ledger.ConcreteCryptoTypes (C, C_Crypto, ExMock)
-import Test.Shelley.Spec.Ledger.Examples (CHAINExample (..), testCHAINExample)
+import Test.Shelley.Spec.Ledger.Examples (CHAINExample (..), testCHAINExample, testAndNormalizeCHAINExample, complete)
 import qualified Test.Shelley.Spec.Ledger.Examples.Cast as Cast
 import qualified Test.Shelley.Spec.Ledger.Examples.Combinators as C
 import Test.Shelley.Spec.Ledger.Examples.Federation
@@ -146,6 +146,9 @@ import Test.Shelley.Spec.Ledger.Utils
   )
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase, (@?=))
+
+
+-- ============================================================================
 
 -- | Type local to this module expressing the various constraints assumed
 -- amongst all tests in this module.
@@ -879,7 +882,7 @@ twoPoolsExampleExtended =
     "two pools extended"
     [ testCase "initial registrations" $ testCHAINExample twoPools1,
       testCase "delegate stake and create reward update" $ testCHAINExample twoPools2,
-      testCase "new epoch changes" $ testCHAINExample twoPools3,
+      testCase "new epoch changes" $ testAndNormalizeCHAINExample complete twoPools3,
       testCase "second reward update" $ testCHAINExample twoPools4,
       testCase "nonempty pool distr" $ testCHAINExample twoPools5,
       testCase "alice produces a block" $ testCHAINExample twoPools6,

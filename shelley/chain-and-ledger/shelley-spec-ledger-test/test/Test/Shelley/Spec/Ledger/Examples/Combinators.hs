@@ -46,6 +46,7 @@ module Test.Shelley.Spec.Ledger.Examples.Combinators
   )
 where
 
+import Cardano.Ledger.Address(Addr(..))
 import Cardano.Ledger.Coin (Coin (..))
 import qualified Cardano.Ledger.Core as Core
 import Cardano.Ledger.Era (Crypto, Era)
@@ -77,7 +78,13 @@ import Cardano.Ledger.Credential
     Ptr,
   )
 import Shelley.Spec.Ledger.Delegation.Certificates (PoolDistr (..))
-import Shelley.Spec.Ledger.EpochBoundary (BlocksMade (..), SnapShot, SnapShots (..))
+import Shelley.Spec.Ledger.EpochBoundary
+  ( BlocksMade (..),
+    SnapShot,
+    SnapShots (..),
+    PulsingStakeDistr(..),
+    runToCompletion,
+  )
 import Cardano.Ledger.Keys
   ( GenDelegPair,
     GenDelegs (..),
@@ -532,6 +539,9 @@ applyRewardUpdate ru cs = cs {chainNes = nes'}
 -- Add a new snapshot and rotate the others
 newSnapshot ::
   forall era.
+  ( Era era,
+    HasField "address" (Core.TxOut era) (Addr (Crypto era))
+  ) =>
   SnapShot (Crypto era) ->
   Coin ->
   ChainState era ->
@@ -546,8 +556,8 @@ newSnapshot snap fee cs = cs {chainNes = nes'}
       } = esSnapshots es
     snaps =
       SnapShots
-        { _pstakeMark = snap,
-          _pstakeSet = ssMark,
+        { _pstakeMark = Completed snap,
+          _pstakeSet = runToCompletion ssMark,
           _pstakeGo = ssSet,
           _feeSS = fee
         }

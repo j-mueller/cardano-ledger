@@ -43,6 +43,7 @@ module Control.State.Transition.Trace
   -- * Miscellaneous utilities
   , extractValues
   , applySTSTest
+  , runAndCompare
   )
 where
 
@@ -417,6 +418,22 @@ mSt .-> stExpected = do
   stActual <- mSt
   liftIO $ stActual @?= stExpected
   return stActual
+
+
+-- | (runAndCompare normalize initial action expected) is a generalization of: (initial .- action .-> expected),
+--   where the state obtained by running 'action' on the 'initial' state, is
+--   'normalize'd before being compared to 'expected'.
+runAndCompare
+  :: (MonadReader (st -> sig -> Either a1 st) m, MonadIO m, Eq st,Show a1, Show st) =>
+     (st -> st) -> m st -> sig -> st -> m st
+runAndCompare normalize initial action expected = do
+   st <- initial
+   validate <- ask
+   case validate st action of
+     Left pfs -> liftIO . assertFailure . show $ pfs
+     Right st' -> do liftIO $ (normalize st') @?= (normalize expected)
+                     pure st'
+
 
 checkTrace
   :: forall s m

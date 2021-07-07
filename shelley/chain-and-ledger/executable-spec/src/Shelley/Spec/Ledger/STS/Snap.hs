@@ -33,8 +33,10 @@ import Shelley.Spec.Ledger.LedgerState
   ( DPState (..),
     LedgerState (..),
     UTxOState (..),
-    stakeDistr,
+    makePulsingStakeDistr,
   )
+
+-- ===============================================
 
 data SNAP era
 
@@ -44,7 +46,7 @@ data SnapPredicateFailure era -- No predicate failures
 instance NoThunks (SnapPredicateFailure era)
 
 instance (UsesTxOut era, UsesValue era) => STS (SNAP era) where
-  type State (SNAP era) = SnapShots (Crypto era)
+  type State (SNAP era) = SnapShots era
   type Signal (SNAP era) = ()
   type Environment (SNAP era) = LedgerState era
   type BaseM (SNAP era) = ShelleyBase
@@ -61,11 +63,11 @@ snapTransition = do
   TRC (lstate, s, _) <- judgmentContext
 
   let LedgerState (UTxOState utxo _ fees _) (DPState dstate pstate) = lstate
-      stake = stakeDistr utxo dstate pstate
+      stake = makePulsingStakeDistr utxo dstate pstate
   pure $
     s
       { _pstakeMark = stake,
-        _pstakeSet = _pstakeMark s,
+        _pstakeSet = runToCompletion (_pstakeMark s),
         _pstakeGo = _pstakeSet s,
         _feeSS = fees
       }

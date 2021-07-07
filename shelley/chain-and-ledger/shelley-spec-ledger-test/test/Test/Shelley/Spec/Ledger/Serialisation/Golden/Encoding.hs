@@ -130,6 +130,7 @@ import Shelley.Spec.Ledger.EpochBoundary
     SnapShot (..),
     SnapShots (..),
     Stake (..),
+    PulsingStakeDistr(..),
   )
 import Shelley.Spec.Ledger.LedgerState
   ( AccountState (..),
@@ -1215,7 +1216,7 @@ tests =
                 <> S (testStakeCred @C_Crypto)
                 <> S (Coin 13)
             ),
-      let mark =
+      let mark = Completed $
             SnapShot
               (Stake $ Map.singleton (testStakeCred @C_Crypto) (Coin 11))
               (Map.singleton (testStakeCred @C_Crypto) (hashKey $ vKey testStakePoolKey))
@@ -1251,7 +1252,7 @@ tests =
           fs = Coin 123
        in checkEncodingCBOR
             "snapshots"
-            (SnapShots mark set go fs)
+            ((SnapShots mark set go fs):: (SnapShots C))
             ( T (TkListLen 4)
                 <> S mark
                 <> S set
@@ -1294,7 +1295,7 @@ tests =
               }
           ps = Map.singleton (hashKey $ vKey testStakePoolKey) params
           fs = Coin 123
-          ss = SnapShots mark set go fs
+          ss = SnapShots (Completed mark) set go fs
           ls = def
           pps = emptyPParams
           bs = Map.singleton (hashKey $ vKey testStakePoolKey) 1

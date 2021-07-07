@@ -22,7 +22,7 @@ where
 import Cardano.Ledger.BaseTypes (ShelleyBase)
 import Cardano.Ledger.Coin (Coin (..))
 import qualified Cardano.Ledger.Core as Core
-import Cardano.Ledger.Era (Era (Crypto))
+import Cardano.Ledger.Era (Era)
 import Cardano.Ledger.Shelley.Constraints (UsesTxOut, UsesValue)
 import Cardano.Ledger.Slot (EpochNo)
 import Control.SetAlgebra (eval, (⨃))
@@ -92,7 +92,7 @@ instance
     UsesValue era,
     Embed (Core.EraRule "SNAP" era) (EPOCH era),
     Environment (Core.EraRule "SNAP" era) ~ LedgerState era,
-    State (Core.EraRule "SNAP" era) ~ SnapShots (Crypto era),
+    State (Core.EraRule "SNAP" era) ~ SnapShots era,
     Signal (Core.EraRule "SNAP" era) ~ (),
     Embed (Core.EraRule "POOLREAP" era) (EPOCH era),
     Environment (Core.EraRule "POOLREAP" era) ~ Core.PParams era,
@@ -127,7 +127,7 @@ epochTransition ::
   forall era.
   ( Embed (Core.EraRule "SNAP" era) (EPOCH era),
     Environment (Core.EraRule "SNAP" era) ~ LedgerState era,
-    State (Core.EraRule "SNAP" era) ~ SnapShots (Crypto era),
+    State (Core.EraRule "SNAP" era) ~ SnapShots era,
     Signal (Core.EraRule "SNAP" era) ~ (),
     Embed (Core.EraRule "POOLREAP" era) (EPOCH era),
     Environment (Core.EraRule "POOLREAP" era) ~ Core.PParams era,

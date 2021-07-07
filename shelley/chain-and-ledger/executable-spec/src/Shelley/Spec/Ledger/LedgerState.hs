@@ -75,6 +75,7 @@ module Shelley.Spec.Ledger.LedgerState
 
     -- * Epoch boundary
     stakeDistr,
+    makePulsingStakeDistr,
     applyRUpd,
     createRUpd,
     completeRupd,
@@ -198,9 +199,11 @@ import Shelley.Spec.Ledger.Delegation.Certificates
   )
 import Shelley.Spec.Ledger.EpochBoundary
   ( BlocksMade (..),
+    PulsingStakeDistr (..),
     SnapShot (..),
     SnapShots (..),
     Stake (..),
+    StakeDistrPulser (..),
     aggregateUtxoCoinByCredential,
   )
 import Shelley.Spec.Ledger.PParams
@@ -463,7 +466,7 @@ instance NFData AccountState
 
 data EpochState era = EpochState
   { esAccountState :: !AccountState,
-    esSnapshots :: !(SnapShots (Crypto era)),
+    esSnapshots :: !(SnapShots era),
     esLState :: !(LedgerState era),
     esPrevPp :: !(Core.PParams era),
     esPp :: !(Core.PParams era),
@@ -480,9 +483,7 @@ type TransEpoch (c :: Type -> Constraint) era =
     c (Core.PParams era)
   )
 
-deriving stock instance
-  TransEpoch Show era =>
-  Show (EpochState era)
+deriving instance (TransEpoch Show era, Show (UTxO era)) => Show (EpochState era)
 
 deriving stock instance
   TransEpoch Eq era =>
@@ -1043,6 +1044,24 @@ stakeDistr u ds ps =
     activeDelegs :: Map (Credential 'Staking (Crypto era)) (KeyHash 'StakePool (Crypto era))
     activeDelegs = eval ((dom rewards' ◁ delegs) ▷ dom poolParams)
 
+-- | Like the function 'stakeDistr', this can be run at the Epoch boundary to create  PulsingStakeDistr.
+--   This can be thought of as a lazy SnapShot, that is run in small increments, using the methods of the Pulsable class.
+makePulsingStakeDistr ::
+  forall era m.
+  UTxO era ->
+  DState (Crypto era) ->
+  PState (Crypto era) ->
+  PulsingStakeDistr era m
+makePulsingStakeDistr (u@(UTxO u')) ds ps = StillPulsing (SDP n u (forwards ptrs') activeDelegs (SnapShot (Stake rewards') delegs poolParams))
+  where
+    DState rewards' delegs ptrs' _ _ _ = ds
+    PState poolParams _ _ = ps
+    activeDelegs :: Map.Map (Credential 'Staking (Crypto era)) (KeyHash 'StakePool (Crypto era))
+    activeDelegs = eval ((dom rewards' ◁ delegs) ▷ dom poolParams)
+    ticks :: Int
+    ticks = 100 -- How do we estimate this?
+    n = (div (Map.size u') ticks) + 1
+
 -- | Apply a reward update
 applyRUpd ::
   ( HasField "_protocolVersion" (Core.PParams era) ProtVer
@@ -1163,7 +1182,8 @@ startStep slotsPerEpoch b@(BlocksMade b') es@(EpochState acnt ss ls pr _ nm) max
       totalStake = circulation es maxSupply
       rewsnap =
         RewardSnapShot
-          { rewSnapshots = ss,
+          { rewPstakeGo = _pstakeGo ss,
+            rewFeeSS = _feeSS ss,
             rewa0 = getField @"_a0" pr,
             rewnOpt = getField @"_nOpt" pr,
             rewprotocolVersion = getField @"_protocolVersion" pr,
@@ -1239,7 +1259,8 @@ completeRupd
             rewNonMyopic = nm,
             rewTotalStake = totalstake,
             rewRPot = rpot,
-            rewSnapshots = snaps,
+            rewPstakeGo = gosnap,
+            rewFeeSS = feesnap,
             rewa0 = a0,
             rewnOpt = nOpt
           }
@@ -1255,7 +1276,7 @@ completeRupd
         -- A function to compute the 'desirablity' aggregate. Called only if we are computing
         -- provenance. Adds nested pair ('key',(LikeliHoodEstimate,Desirability)) to the Map 'ans'
         addDesireability ans key likelihood =
-          let SnapShot _ _ poolParams = _pstakeGo snaps
+          let SnapShot _ _ poolParams = gosnap
               estimate = (percentile' likelihood)
            in Map.insert
                 key
@@ -1274,7 +1295,7 @@ completeRupd
         { deltaT = (DeltaCoin deltaT1),
           deltaR = ((invert $ toDeltaCoin deltaR1) <> toDeltaCoin deltaR2),
           rs = rs_,
-          deltaF = (invert (toDeltaCoin $ _feeSS snaps)),
+          deltaF = (invert (toDeltaCoin feesnap)),
           nonMyopic = (updateNonMyopic nm oldr newLikelihoods)
         }
 

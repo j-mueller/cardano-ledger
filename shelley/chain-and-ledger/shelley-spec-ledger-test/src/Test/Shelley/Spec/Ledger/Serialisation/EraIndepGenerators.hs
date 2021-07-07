@@ -92,7 +92,7 @@ import Numeric.Natural (Natural)
 import Shelley.Spec.Ledger.API hiding (SignedDSIGN, TxBody (..))
 import Shelley.Spec.Ledger.Address.Bootstrap (ChainCode (..))
 import Shelley.Spec.Ledger.Delegation.Certificates (IndividualPoolStake (..))
-import Shelley.Spec.Ledger.EpochBoundary (BlocksMade (..))
+import Shelley.Spec.Ledger.EpochBoundary (BlocksMade (..), PulsingStakeDistr(..), StakeDistrPulser(..))
 import Shelley.Spec.Ledger.LedgerState (FutureGenDeleg)
 import qualified Shelley.Spec.Ledger.Metadata as MD
 import Shelley.Spec.Ledger.RewardProvenance
@@ -159,6 +159,7 @@ import Test.Shelley.Spec.Ledger.Serialisation.Generators.Bootstrap
     genSignature,
   )
 import Test.Shelley.Spec.Ledger.Utils (unsafeBoundRational)
+import Data.Functor.Identity(Identity)
 
 -- =======================================================
 
@@ -613,9 +614,30 @@ instance CC.Crypto crypto => Arbitrary (SnapShot crypto) where
   arbitrary = genericArbitraryU
   shrink = genericShrink
 
-instance CC.Crypto crypto => Arbitrary (SnapShots crypto) where
+instance
+  ( Era era,
+    Mock (Crypto era),
+    UsesTxOut era,
+    UsesValue era,
+    Arbitrary (Core.TxOut era) ) => Arbitrary (SnapShots era) where
+  arbitrary = SnapShots <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance
+   ( Era era,
+     UsesValue era,
+     UsesTxOut era,
+     Mock(Crypto era),
+     Arbitrary (Core.TxOut era) ) => Arbitrary (PulsingStakeDistr era Identity) where
   arbitrary = genericArbitraryU
   shrink = genericShrink
+
+instance ( Era era,
+           c ~ Crypto era,
+           Mock c,
+           UsesTxOut era,
+           UsesValue era,
+           Arbitrary (Core.TxOut era) )  => Arbitrary (StakeDistrPulser era m (SnapShot c)) where
+  arbitrary = SDP <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary PerformanceEstimate where
   arbitrary = PerformanceEstimate <$> arbitrary
@@ -965,6 +987,7 @@ instance
   arbitrary =
     RewardSnapShot
       <$> arbitrary
+      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary

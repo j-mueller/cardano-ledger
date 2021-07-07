@@ -53,6 +53,7 @@ import Shelley.Spec.Ledger.BlockChain
   ( LastAppliedBlock (..),
     hashHeaderToNonce,
   )
+import Shelley.Spec.Ledger.EpochBoundary(PulsingStakeDistr(..))
 import Shelley.Spec.Ledger.LedgerState (stakeDistr)
 import Shelley.Spec.Ledger.STS.Bbody (BbodyEnv, BbodyState)
 import qualified Shelley.Spec.Ledger.STS.Chain as STS (ChainState (ChainState))
@@ -225,7 +226,7 @@ registerGenesisStaking
           { esLState = newLedgerState,
             esSnapshots =
               (esSnapshots oldEpochState)
-                { _pstakeMark = initSnapShot
+                { _pstakeMark = (Completed initSnapShot)
                 }
           }
       newLedgerState =
