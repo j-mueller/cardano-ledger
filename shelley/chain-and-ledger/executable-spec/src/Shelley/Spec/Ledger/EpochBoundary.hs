@@ -38,6 +38,7 @@ module Shelley.Spec.Ledger.EpochBoundary
     PulsingStakeDistr (..),
     aggregateUtxoCoinByActiveCredential,
     runToCompletion,
+    pulse,
   )
 where
 
@@ -317,6 +318,14 @@ runToCompletion ::
   SnapShot (Crypto era)
 runToCompletion (Completed ss) = ss
 runToCompletion (StillPulsing sdp) = runIdentity (completeM sdp)
+
+pulse ::
+  ( Era era,
+    HasField "address" (Core.TxOut era) (Addr (Crypto era))
+  ) => PulsingStakeDistr era Identity -> PulsingStakeDistr era Identity
+pulse (Completed ss) = (Completed ss)
+pulse (StillPulsing sdp) = if (done new) then Completed (current new) else StillPulsing new
+   where new = runIdentity(pulseM sdp)
 
 deriving instance (Eq (UTxO era)) => Eq (PulsingStakeDistr era m)
 
