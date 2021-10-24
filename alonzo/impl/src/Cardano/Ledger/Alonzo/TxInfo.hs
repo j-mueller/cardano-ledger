@@ -481,7 +481,7 @@ debugPlutus db =
             script
             ds of
             (logs, Left e) -> DebugInfo logs (show e)
-            (_, Right ()) -> DebugSuccess
+            (_, Right _) -> DebugSuccess
 
 -- The runPLCScript in the Specification has a slightly different type
 -- than the one in the implementation below. Made necessary by the the type
@@ -506,7 +506,7 @@ runPLCScript proxy (CostModel cost) scriptbytestring units ds =
     scriptbytestring
     ds of
     (_, Left e) -> explain_plutus_failure proxy scriptbytestring e ds (CostModel cost) units
-    (_, Right ()) -> Passes
+    (_, Right _) -> Passes
 
 -- | Explin why a script might fail. Scripts come in two flavors. 1) with 3  data arguments [data,redeemer,context]
 --   and  2) with 2 data arguments [redeemer,context]. It pays to decode the context data into a real context
