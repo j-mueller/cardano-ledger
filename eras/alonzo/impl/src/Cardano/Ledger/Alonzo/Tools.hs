@@ -60,7 +60,7 @@ data TransactionScriptFailure c
     RedeemerNotNeeded !RdmrPtr !(ScriptHash c)
   | -- | A redeemer was supplied which points to a script hash which
     -- we cannot connect to a Plutus script.
-    RedeemerPointsToUnknownScriptHash !RdmrPtr
+    RedeemerPointsToUnknownScriptHash !RdmrPtr !(Map RdmrPtr (ScriptPurpose c, Maybe (ShortByteString, Language), ScriptHash c))
   | -- | Missing redeemer. The first parameter is the redeemer pointer which cannot be resolved,
     -- and the second parameter is the map of pointers which can be resolved.
     MissingScript !RdmrPtr !(Map RdmrPtr (ScriptPurpose c, Maybe (ShortByteString, Language), ScriptHash c))
@@ -161,7 +161,7 @@ evaluateTransactionExecutionUnits pp tx utxo ei sysS costModels = do
       Either (TransactionScriptFailure (Crypto era)) ExUnits
     findAndCount pparams info pointer (rdmr, _) = do
       (sp, mscript, sh) <-
-        note (RedeemerPointsToUnknownScriptHash pointer) $
+        note (RedeemerPointsToUnknownScriptHash pointer ptrToPlutusScript) $
           Map.lookup pointer ptrToPlutusScript
       (script, lang) <- note (MissingScript pointer ptrToPlutusScript) mscript
       inf <- note (RedeemerNotNeeded pointer sh) $ Map.lookup lang info

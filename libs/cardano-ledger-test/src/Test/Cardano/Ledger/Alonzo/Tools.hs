@@ -211,7 +211,7 @@ exampleInvalidExUnitCalc proof = do
         [] ->
           assertFailure "evaluateTransactionExecutionUnits should have produced a failing report"
         [(_, failure)] ->
-          RedeemerPointsToUnknownScriptHash (RdmrPtr Spend 1)
+          RedeemerPointsToUnknownScriptHash (RdmrPtr Spend 1) _
             @=? failure
         failures ->
           assertFailure $
